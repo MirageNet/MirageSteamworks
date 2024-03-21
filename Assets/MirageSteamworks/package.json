@@ -1,0 +1,17 @@
+{
+    "name": "com.james-frowen.miragesteamworks",
+    "displayName": "Steamworks Transport for Mirage",
+    "version": "0.0.1",
+    "unity": "2022.3",
+    "description": "Steam transport for Mirage using Steamworks.net",
+    "author": "James Frowen",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/James-Frowen/MirageSteamworks"
+    },
+    "dependencies": {
+        "com.miragenet.mirage": "147.2.1",
+        "com.rlabrecque.steamworks.net": "20.2.0"
+    },
+    "samples": []
+}
