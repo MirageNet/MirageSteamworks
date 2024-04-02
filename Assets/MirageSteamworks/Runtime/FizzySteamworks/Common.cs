@@ -1,12 +1,11 @@
-#if !DISABLESTEAMWORKS
-using Steamworks;
 using System;
 using System.Runtime.InteropServices;
+using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
-    public abstract class NextCommon
+    public abstract class Common
     {
         protected const int MAX_MESSAGES = 256;
 
@@ -15,7 +14,7 @@ namespace Mirror.FizzySteam
             Array.Resize(ref data, data.Length + 1);
             data[data.Length - 1] = (byte)channelId;
 
-            GCHandle pinnedArray = GCHandle.Alloc(data, GCHandleType.Pinned);
+            var pinnedArray = GCHandle.Alloc(data, GCHandleType.Pinned);
             IntPtr pData = pinnedArray.AddrOfPinnedObject();
             int sendFlag = channelId == Channels.Unreliable ? Constants.k_nSteamNetworkingSend_Unreliable : Constants.k_nSteamNetworkingSend_Reliable;
 #if UNITY_SERVER
@@ -45,4 +44,3 @@ namespace Mirror.FizzySteam
         }
     }
 }
-#endif // !DISABLESTEAMWORKS

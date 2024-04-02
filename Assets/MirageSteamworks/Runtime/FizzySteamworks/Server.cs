@@ -1,12 +1,11 @@
-#if !DISABLESTEAMWORKS
-using Steamworks;
 using System;
 using System.Linq;
+using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
-    public class NextServer : NextCommon, IServer
+    public class Server : Common
     {
         private event Action<int> OnConnected;
         private event Action<int, byte[], int> OnReceivedData;
@@ -21,7 +20,7 @@ namespace Mirror.FizzySteam
         private HSteamListenSocket listenSocket;
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        private NextServer(int maxConnections)
+        private Server(int maxConnections)
         {
             this.maxConnections = maxConnections;
             connToMirrorID = new BidirectionalDictionary<HSteamNetConnection, int>();
@@ -30,9 +29,9 @@ namespace Mirror.FizzySteam
             c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
         }
 
-        public static NextServer CreateServer(FizzySteamworks transport, int maxConnections)
+        public static Server CreateServer(FizzySteamworks transport, int maxConnections)
         {
-            NextServer s = new NextServer(maxConnections);
+            var s = new Server(maxConnections);
 
             s.OnConnected += (id) => transport.OnServerConnected.Invoke(id);
             s.OnDisconnected += (id) => transport.OnServerDisconnected.Invoke(id);
@@ -59,7 +58,7 @@ namespace Mirror.FizzySteam
 
         private void Host()
         {
-            SteamNetworkingConfigValue_t[] options = new SteamNetworkingConfigValue_t[] { };
+            var options = new SteamNetworkingConfigValue_t[] { };
 #if UNITY_SERVER
             listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
 #else
@@ -170,7 +169,7 @@ namespace Mirror.FizzySteam
             {
                 if (connToMirrorID.TryGetValue(conn, out int connId))
                 {
-                    IntPtr[] ptrs = new IntPtr[MAX_MESSAGES];
+                    var ptrs = new IntPtr[MAX_MESSAGES];
                     int messageCount;
 
 #if UNITY_SERVER
@@ -239,4 +238,3 @@ namespace Mirror.FizzySteam
         }
     }
 }
-#endif // !DISABLESTEAMWORKS

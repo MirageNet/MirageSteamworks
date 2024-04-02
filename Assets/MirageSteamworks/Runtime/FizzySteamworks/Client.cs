@@ -1,14 +1,13 @@
-#if !DISABLESTEAMWORKS
-using Steamworks;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
-    public class NextClient : NextCommon, IClient
+    public class Client : Common
     {
         public bool Connected { get; private set; }
         public bool Error { get; private set; }
@@ -26,15 +25,15 @@ namespace Mirror.FizzySteam
         private HSteamNetConnection HostConnection;
         private List<Action> BufferedData;
 
-        private NextClient(FizzySteamworks transport)
+        private Client(FizzySteamworks transport)
         {
             ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1, transport.Timeout));
             BufferedData = new List<Action>();
         }
 
-        public static NextClient CreateClient(FizzySteamworks transport, string host)
+        public static Client CreateClient(FizzySteamworks transport, string host)
         {
-            NextClient c = new NextClient(transport);
+            var c = new Client(transport);
 
             c.OnConnected += () => transport.OnClientConnected.Invoke();
             c.OnDisconnected += () => transport.OnClientDisconnected.Invoke();
@@ -76,14 +75,14 @@ namespace Mirror.FizzySteam
                 connectedComplete = new TaskCompletionSource<Task>();
                 OnConnected += SetConnectedComplete;
 
-                SteamNetworkingIdentity smi = new SteamNetworkingIdentity();
+                var smi = new SteamNetworkingIdentity();
                 smi.SetSteamID(hostSteamID);
 
-                SteamNetworkingConfigValue_t[] options = new SteamNetworkingConfigValue_t[] { };
+                var options = new SteamNetworkingConfigValue_t[] { };
                 HostConnection = SteamNetworkingSockets.ConnectP2P(ref smi, 0, options.Length, options);
 
                 Task connectedCompleteTask = connectedComplete.Task;
-                Task timeOutTask = Task.Delay(ConnectionTimeout, cancelToken.Token);
+                var timeOutTask = Task.Delay(ConnectionTimeout, cancelToken.Token);
 
                 if (await Task.WhenAny(connectedCompleteTask, timeOutTask) != connectedCompleteTask)
                 {
@@ -192,7 +191,7 @@ namespace Mirror.FizzySteam
 
         public void ReceiveData()
         {
-            IntPtr[] ptrs = new IntPtr[MAX_MESSAGES];
+            var ptrs = new IntPtr[MAX_MESSAGES];
             int messageCount;
 
             if ((messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(HostConnection, ptrs, MAX_MESSAGES)) > 0)
@@ -243,4 +242,3 @@ namespace Mirror.FizzySteam
         }
     }
 }
-#endif // !DISABLESTEAMWORKS
