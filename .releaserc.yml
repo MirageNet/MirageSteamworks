@@ -1,0 +1,17 @@
+plugins:
+  - '@semantic-release/github'
+  - '@semantic-release/release-notes-generator'
+  - '@semantic-release/commit-analyzer'
+  - - '@semantic-release/exec'
+    - prepareCmd: "sed -i -e '/AssemblyVersion/s/\".*\"/\"${nextRelease.version}\"/' 
+        Assets/MirageSteamworks/Runtime/AssemblyInfo.cs"
+  - - '@semantic-release/changelog'
+    - changelogFile: 'Assets/MirageSteamworks/CHANGELOG.md'
+  - - '@semantic-release/npm'
+    - npmPublish: false
+      pkgRoot: "Assets/MirageSteamworks"
+  - - '@semantic-release/git'
+    - assets:
+        - 'Assets/MirageSteamworks/Runtime/AssemblyInfo.cs'
+        - 'Assets/MirageSteamworks/package.json'
+        - 'Assets/MirageSteamworks/CHANGELOG.md'
