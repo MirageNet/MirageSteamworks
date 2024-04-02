@@ -20,7 +20,6 @@ namespace Mirror.FizzySteam
         public event Action<int, string> OnReceivedError;
 
         private readonly List<Connection> connections = new List<Connection>();
-        private readonly bool GameServer;
 
         private BidirectionalDictionary<HSteamNetConnection, int> connToMirrorID;
         private BidirectionalDictionary<CSteamID, int> steamIDToMirrorID;
@@ -30,25 +29,27 @@ namespace Mirror.FizzySteam
         private HSteamListenSocket listenSocket;
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        public Server(int maxConnections, bool gameServer)
+        public Server(int maxConnections, bool gameServer) : base(gameServer)
         {
             this.maxConnections = maxConnections;
             connToMirrorID = new BidirectionalDictionary<HSteamNetConnection, int>();
             steamIDToMirrorID = new BidirectionalDictionary<CSteamID, int>();
             nextConnectionID = 1;
             c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
-            GameServer = gameServer;
         }
 
         public void Start()
         {
             try
             {
-#if UNITY_SERVER
-                SteamGameServerNetworkingUtils.InitRelayNetworkAccess();
-#else
-                SteamNetworkingUtils.InitRelayNetworkAccess();
-#endif
+                if (GameServer)
+                {
+                    SteamGameServerNetworkingUtils.InitRelayNetworkAccess();
+                }
+                else
+                {
+                    SteamNetworkingUtils.InitRelayNetworkAccess();
+                }
             }
             catch (Exception ex)
             {
@@ -61,11 +62,14 @@ namespace Mirror.FizzySteam
         private void Host()
         {
             var options = new SteamNetworkingConfigValue_t[] { };
-#if UNITY_SERVER
-            listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
-#else
-            listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
-#endif
+            if (GameServer)
+            {
+                listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
+            }
+            else
+            {
+                listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
+            }
         }
 
         private void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
@@ -76,21 +80,28 @@ namespace Mirror.FizzySteam
                 if (connections.Count >= maxConnections)
                 {
                     Debug.Log($"Incoming connection {clientSteamID} would exceed max connection count. Rejecting.");
-#if UNITY_SERVER
-                    SteamGameServerNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
-#else
-                    SteamNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
-#endif
+                    if (GameServer)
+                    {
+                        SteamGameServerNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
+                    }
+                    else
+                    {
+                        SteamNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
+                    }
                     return;
                 }
 
                 EResult res;
+                if (GameServer)
+                {
+                    res = SteamGameServerNetworkingSockets.AcceptConnection(param.m_hConn);
+                }
+                else
+                {
+                    res = SteamNetworkingSockets.AcceptConnection(param.m_hConn);
+                }
 
-#if UNITY_SERVER
-                if ((res = SteamGameServerNetworkingSockets.AcceptConnection(param.m_hConn)) == EResult.k_EResultOK)
-#else
-                if ((res = SteamNetworkingSockets.AcceptConnection(param.m_hConn)) == EResult.k_EResultOK)
-#endif
+                if (res == EResult.k_EResultOK)
                 {
                     Debug.Log($"Accepting connection {clientSteamID}");
                 }
@@ -123,11 +134,14 @@ namespace Mirror.FizzySteam
         private void InternalDisconnect(int connId, HSteamNetConnection socket)
         {
             OnDisconnected?.Invoke(connId);
-#if UNITY_SERVER
-            SteamGameServerNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
-#else
-            SteamNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
-#endif
+            if (GameServer)
+            {
+                SteamGameServerNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
+            }
+            else
+            {
+                SteamNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
+            }
             connToMirrorID.Remove(connId);
             steamIDToMirrorID.Remove(connId);
             Debug.Log($"Client with ConnectionID {connId} disconnected.");
@@ -138,11 +152,14 @@ namespace Mirror.FizzySteam
             if (connToMirrorID.TryGetValue(connectionId, out HSteamNetConnection conn))
             {
                 Debug.Log($"Connection id {connectionId} disconnected.");
-#if UNITY_SERVER
-                SteamGameServerNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
-#else
-                SteamNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
-#endif
+                if (GameServer)
+                {
+                    SteamGameServerNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
+                }
+                else
+                {
+                    SteamNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
+                }
                 steamIDToMirrorID.Remove(connectionId);
                 connToMirrorID.Remove(connectionId);
                 OnDisconnected?.Invoke(connectionId);
@@ -157,11 +174,14 @@ namespace Mirror.FizzySteam
         {
             foreach (HSteamNetConnection conn in connToMirrorID.FirstTypes.ToList())
             {
-#if UNITY_SERVER
-                SteamGameServerNetworkingSockets.FlushMessagesOnConnection(conn);
-#else
-                SteamNetworkingSockets.FlushMessagesOnConnection(conn);
-#endif
+                if (GameServer)
+                {
+                    SteamGameServerNetworkingSockets.FlushMessagesOnConnection(conn);
+                }
+                else
+                {
+                    SteamNetworkingSockets.FlushMessagesOnConnection(conn);
+                }
             }
         }
 
@@ -174,11 +194,16 @@ namespace Mirror.FizzySteam
                     var ptrs = new IntPtr[MAX_MESSAGES];
                     int messageCount;
 
-#if UNITY_SERVER
-                    if ((messageCount = SteamGameServerNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES)) > 0)
-#else
-                    if ((messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES)) > 0)
-#endif
+                    if (GameServer)
+                    {
+                        messageCount = SteamGameServerNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES);
+                    }
+                    else
+                    {
+                        messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES);
+                    }
+
+                    if (messageCount > 0)
                     {
                         for (int i = 0; i < messageCount; i++)
                         {
@@ -229,11 +254,14 @@ namespace Mirror.FizzySteam
 
         public void Shutdown()
         {
-#if UNITY_SERVER
-            SteamGameServerNetworkingSockets.CloseListenSocket(listenSocket);
-#else
-            SteamNetworkingSockets.CloseListenSocket(listenSocket);
-#endif
+            if (GameServer)
+            {
+                SteamGameServerNetworkingSockets.CloseListenSocket(listenSocket);
+            }
+            else
+            {
+                SteamNetworkingSockets.CloseListenSocket(listenSocket);
+            }
 
             c_onConnectionChange?.Dispose();
             c_onConnectionChange = null;

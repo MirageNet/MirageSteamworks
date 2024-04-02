@@ -16,6 +16,16 @@ namespace Mirror.FizzySteam
             Unreliable = 1,
         }
 
+        /// <summary>
+        /// if the <see cref="SteamGameServerNetworkingSockets"/> should be used instead of <see cref="SteamNetworkingSockets"/>
+        /// </summary>
+        protected readonly bool GameServer;
+
+        protected Common(bool gameServer)
+        {
+            GameServer = gameServer;
+        }
+
         public static int ChanelToSteamConst(Channel channel)
         {
             switch (channel)
@@ -50,11 +60,15 @@ namespace Mirror.FizzySteam
             var pinnedArray = GCHandle.Alloc(data, GCHandleType.Pinned);
             IntPtr pData = pinnedArray.AddrOfPinnedObject();
             int sendFlag = ChanelToSteamConst(channelId);
-#if UNITY_SERVER
-            EResult res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
-#else
-            EResult res = SteamNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
-#endif
+            EResult res;
+            if (GameServer)
+            {
+                res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
+            }
+            else
+            {
+                res = SteamNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
+            }
             if (res != EResult.k_EResultOK)
             {
                 Debug.LogWarning($"Send issue: {res}");

@@ -25,7 +25,7 @@ namespace Mirror.FizzySteam
         private HSteamNetConnection HostConnection;
         private readonly List<Action> BufferedData;
 
-        public Client(float timeoutSeconds)
+        public Client(float timeoutSeconds, bool gameServer) : base(gameServer)
         {
             ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1f, timeoutSeconds));
             BufferedData = new List<Action>();
@@ -35,11 +35,14 @@ namespace Mirror.FizzySteam
         {
             try
             {
-#if UNITY_SERVER
-                SteamGameServerNetworkingUtils.InitRelayNetworkAccess();
-#else
-                SteamNetworkingUtils.InitRelayNetworkAccess();
-#endif
+                if (GameServer)
+                {
+                    SteamGameServerNetworkingUtils.InitRelayNetworkAccess();
+                }
+                else
+                {
+                    SteamNetworkingUtils.InitRelayNetworkAccess();
+                }
                 ConnectAsync(hostSteamID);
             }
             catch (FormatException)
