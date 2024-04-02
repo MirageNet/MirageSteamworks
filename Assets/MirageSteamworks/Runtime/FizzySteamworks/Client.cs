@@ -12,33 +12,27 @@ namespace Mirror.FizzySteam
         public bool Connected { get; private set; }
         public bool Error { get; private set; }
 
-        private TimeSpan ConnectionTimeout;
+        private readonly TimeSpan ConnectionTimeout;
 
-        private event Action<byte[], int> OnReceivedData;
-        private event Action OnConnected;
-        private event Action OnDisconnected;
+        public event Action<byte[], Channel> OnReceivedData;
+        public event Action OnConnected;
+        public event Action OnDisconnected;
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
 
         private CancellationTokenSource cancelToken;
         private TaskCompletionSource<Task> connectedComplete;
         private CSteamID hostSteamID = CSteamID.Nil;
         private HSteamNetConnection HostConnection;
-        private List<Action> BufferedData;
+        private readonly List<Action> BufferedData;
 
-        private Client(FizzySteamworks transport)
+        public Client(float timeoutSeconds)
         {
-            ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1, transport.Timeout));
+            ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1f, timeoutSeconds));
             BufferedData = new List<Action>();
         }
 
-        public static Client CreateClient(FizzySteamworks transport, string host)
+        public void Connect(CSteamID hostSteamID)
         {
-            var c = new Client(transport);
-
-            c.OnConnected += () => transport.OnClientConnected.Invoke();
-            c.OnDisconnected += () => transport.OnClientDisconnected.Invoke();
-            c.OnReceivedData += (data, ch) => transport.OnClientDataReceived.Invoke(new ArraySegment<byte>(data), ch);
-
             try
             {
 #if UNITY_SERVER
@@ -46,32 +40,29 @@ namespace Mirror.FizzySteam
 #else
                 SteamNetworkingUtils.InitRelayNetworkAccess();
 #endif
-                c.Connect(host);
+                ConnectAsync(hostSteamID);
             }
             catch (FormatException)
             {
                 Debug.LogError($"Connection string was not in the right format. Did you enter a SteamId?");
-                c.Error = true;
-                c.OnConnectionFailed();
+                Error = true;
+                OnConnectionFailed();
             }
             catch (Exception ex)
             {
                 Debug.LogError($"Unexpected exception: {ex.Message}");
-                c.Error = true;
-                c.OnConnectionFailed();
+                Error = true;
+                OnConnectionFailed();
             }
-
-            return c;
         }
 
-        private async void Connect(string host)
+        private async void ConnectAsync(CSteamID hostSteamID)
         {
             cancelToken = new CancellationTokenSource();
             c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
 
             try
             {
-                hostSteamID = new CSteamID(UInt64.Parse(host));
                 connectedComplete = new TaskCompletionSource<Task>();
                 OnConnected += SetConnectedComplete;
 
@@ -92,7 +83,7 @@ namespace Mirror.FizzySteam
                     }
                     else if (timeOutTask.IsCompleted)
                     {
-                        Debug.LogError($"Connection to {host} timed out.");
+                        Debug.LogError($"Connection to {hostSteamID} timed out.");
                     }
 
                     OnConnected -= SetConnectedComplete;
@@ -198,7 +189,7 @@ namespace Mirror.FizzySteam
             {
                 for (int i = 0; i < messageCount; i++)
                 {
-                    (byte[] data, int ch) = ProcessMessage(ptrs[i]);
+                    (byte[] data, Channel ch) = ProcessMessage(ptrs[i]);
                     if (Connected)
                     {
                         OnReceivedData(data, ch);
@@ -211,7 +202,7 @@ namespace Mirror.FizzySteam
             }
         }
 
-        public void Send(byte[] data, int channelId)
+        public void Send(byte[] data, Channel channelId)
         {
             try
             {

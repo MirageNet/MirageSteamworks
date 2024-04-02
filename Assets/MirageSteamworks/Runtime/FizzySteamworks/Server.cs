@@ -1,16 +1,26 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
+    public class Connection //: IConnection
+    {
+
+    }
+
     public class Server : Common
     {
-        private event Action<int> OnConnected;
-        private event Action<int, byte[], int> OnReceivedData;
-        private event Action<int> OnDisconnected;
-        private event Action<int, TransportError, string> OnReceivedError;
+        public event Action<int> OnConnected;
+        public event Action<int, byte[], Channel> OnReceivedData;
+        public event Action<int> OnDisconnected;
+        public event Action<int, string> OnReceivedError;
+
+        private readonly List<Connection> connections = new List<Connection>();
+        private readonly bool GameServer;
 
         private BidirectionalDictionary<HSteamNetConnection, int> connToMirrorID;
         private BidirectionalDictionary<CSteamID, int> steamIDToMirrorID;
@@ -20,24 +30,18 @@ namespace Mirror.FizzySteam
         private HSteamListenSocket listenSocket;
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        private Server(int maxConnections)
+        public Server(int maxConnections, bool gameServer)
         {
             this.maxConnections = maxConnections;
             connToMirrorID = new BidirectionalDictionary<HSteamNetConnection, int>();
             steamIDToMirrorID = new BidirectionalDictionary<CSteamID, int>();
             nextConnectionID = 1;
             c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
+            GameServer = gameServer;
         }
 
-        public static Server CreateServer(FizzySteamworks transport, int maxConnections)
+        public void Start()
         {
-            var s = new Server(maxConnections);
-
-            s.OnConnected += (id) => transport.OnServerConnected.Invoke(id);
-            s.OnDisconnected += (id) => transport.OnServerDisconnected.Invoke(id);
-            s.OnReceivedData += (id, data, ch) => transport.OnServerDataReceived.Invoke(id, new ArraySegment<byte>(data), ch);
-            s.OnReceivedError += (id, error, reason) => transport.OnServerError.Invoke(id, error, reason);
-
             try
             {
 #if UNITY_SERVER
@@ -51,9 +55,7 @@ namespace Mirror.FizzySteam
                 Debug.LogException(ex);
             }
 
-            s.Host();
-
-            return s;
+            Host();
         }
 
         private void Host()
@@ -71,7 +73,7 @@ namespace Mirror.FizzySteam
             ulong clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
             if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connecting)
             {
-                if (connToMirrorID.Count >= maxConnections)
+                if (connections.Count >= maxConnections)
                 {
                     Debug.Log($"Incoming connection {clientSteamID} would exceed max connection count. Rejecting.");
 #if UNITY_SERVER
@@ -180,7 +182,7 @@ namespace Mirror.FizzySteam
                     {
                         for (int i = 0; i < messageCount; i++)
                         {
-                            (byte[] data, int ch) = ProcessMessage(ptrs[i]);
+                            (byte[] data, Channel ch) = ProcessMessage(ptrs[i]);
                             OnReceivedData?.Invoke(connId, data, ch);
                         }
                     }
@@ -188,7 +190,7 @@ namespace Mirror.FizzySteam
             }
         }
 
-        public void Send(int connectionId, byte[] data, int channelId)
+        public void Send(int connectionId, byte[] data, Channel channelId)
         {
             if (connToMirrorID.TryGetValue(connectionId, out HSteamNetConnection conn))
             {
@@ -207,7 +209,7 @@ namespace Mirror.FizzySteam
             else
             {
                 Debug.LogError("Trying to send on an unknown connection: " + connectionId);
-                OnReceivedError?.Invoke(connectionId, TransportError.Unexpected, "ERROR Unknown Connection");
+                OnReceivedError?.Invoke(connectionId, "ERROR Unknown Connection");
             }
         }
 
@@ -220,7 +222,7 @@ namespace Mirror.FizzySteam
             else
             {
                 Debug.LogError("Trying to get info on an unknown connection: " + connectionId);
-                OnReceivedError?.Invoke(connectionId, TransportError.Unexpected, "ERROR Unknown Connection");
+                OnReceivedError?.Invoke(connectionId, "ERROR Unknown Connection");
                 return string.Empty;
             }
         }
@@ -235,6 +237,90 @@ namespace Mirror.FizzySteam
 
             c_onConnectionChange?.Dispose();
             c_onConnectionChange = null;
+        }
+    }
+
+    public class BidirectionalDictionary<T1, T2> : IEnumerable
+    {
+        private Dictionary<T1, T2> t1ToT2Dict = new Dictionary<T1, T2>();
+        private Dictionary<T2, T1> t2ToT1Dict = new Dictionary<T2, T1>();
+
+        public IEnumerable<T1> FirstTypes => t1ToT2Dict.Keys;
+        public IEnumerable<T2> SecondTypes => t2ToT1Dict.Keys;
+
+        public IEnumerator GetEnumerator() => t1ToT2Dict.GetEnumerator();
+
+        public int Count => t1ToT2Dict.Count;
+
+        public void Add(T1 key, T2 value)
+        {
+            if (t1ToT2Dict.ContainsKey(key))
+            {
+                Remove(key);
+            }
+
+            t1ToT2Dict[key] = value;
+            t2ToT1Dict[value] = key;
+        }
+
+        public void Add(T2 key, T1 value)
+        {
+            if (t2ToT1Dict.ContainsKey(key))
+            {
+                Remove(key);
+            }
+
+            t2ToT1Dict[key] = value;
+            t1ToT2Dict[value] = key;
+        }
+
+        public T2 Get(T1 key) => t1ToT2Dict[key];
+
+        public T1 Get(T2 key) => t2ToT1Dict[key];
+
+        public bool TryGetValue(T1 key, out T2 value) => t1ToT2Dict.TryGetValue(key, out value);
+
+        public bool TryGetValue(T2 key, out T1 value) => t2ToT1Dict.TryGetValue(key, out value);
+
+        public bool Contains(T1 key) => t1ToT2Dict.ContainsKey(key);
+
+        public bool Contains(T2 key) => t2ToT1Dict.ContainsKey(key);
+
+        public void Remove(T1 key)
+        {
+            if (Contains(key))
+            {
+                T2 val = t1ToT2Dict[key];
+                t1ToT2Dict.Remove(key);
+                t2ToT1Dict.Remove(val);
+            }
+        }
+        public void Remove(T2 key)
+        {
+            if (Contains(key))
+            {
+                T1 val = t2ToT1Dict[key];
+                t1ToT2Dict.Remove(val);
+                t2ToT1Dict.Remove(key);
+            }
+        }
+
+        public T1 this[T2 key]
+        {
+            get => t2ToT1Dict[key];
+            set
+            {
+                Add(key, value);
+            }
+        }
+
+        public T2 this[T1 key]
+        {
+            get => t1ToT2Dict[key];
+            set
+            {
+                Add(key, value);
+            }
         }
     }
 }
