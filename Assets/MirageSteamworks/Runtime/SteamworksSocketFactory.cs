@@ -1,6 +1,6 @@
 using System;
 using Mirage.SocketLayer;
-using Mirror.FizzySteam;
+using Mirage.SteamworksSocket;
 using Steamworks;
 
 namespace Mirage.SteamworksSocket

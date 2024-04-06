@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Steamworks;
 using UnityEngine;
 
-namespace Mirror.FizzySteam
+namespace Mirage.SteamworksSocket
 {
     public class Client : Common
     {

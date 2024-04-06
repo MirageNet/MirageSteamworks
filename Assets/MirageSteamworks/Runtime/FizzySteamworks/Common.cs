@@ -6,7 +6,7 @@ using Mirage.SocketLayer;
 using Steamworks;
 using UnityEngine;
 
-namespace Mirror.FizzySteam
+namespace Mirage.SteamworksSocket
 {
     public class Buffer : IDisposable
     {
