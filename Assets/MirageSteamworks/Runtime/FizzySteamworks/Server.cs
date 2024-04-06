@@ -1,40 +1,88 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
+using System.Runtime.InteropServices;
+using Mirage.SocketLayer;
 using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
-    public class Connection //: IConnection
+    public class SteamEndPoint : IEndPoint
     {
+        public SteamConnection Connection;
+        public CSteamID HostId;
 
+        public SteamEndPoint() { }
+        public SteamEndPoint(CSteamID hostId)
+        {
+            HostId = hostId;
+        }
+        private SteamEndPoint(SteamConnection conn)
+        {
+            Connection = conn ?? throw new ArgumentNullException(nameof(conn));
+        }
+
+        IEndPoint IEndPoint.CreateCopy()
+        {
+            return new SteamEndPoint(Connection);
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (!(obj is SteamEndPoint other))
+                return false;
+
+            // both null
+            if (Connection == null && other.Connection == null)
+                return true;
+
+            return Connection.Equals(other.Connection);
+        }
+
+        public override int GetHashCode()
+        {
+            if (Connection != null)
+            {
+                return Connection.GetHashCode();
+            }
+            else
+            {
+                return HostId.GetHashCode();
+            }
+        }
+    }
+    public class SteamConnection
+    {
+        public readonly HSteamNetConnection id;
+        public readonly CSteamID cSteamID;
+        public bool Disconnected;
+
+        public SteamConnection(HSteamNetConnection hConn, CSteamID cSteamID)
+        {
+            id = hConn;
+            this.cSteamID = cSteamID;
+        }
+
+        public override string ToString()
+        {
+            return $"SteamConnection({cSteamID})";
+        }
     }
 
     public class Server : Common
     {
-        public event Action<int> OnConnected;
-        public event Action<int, byte[], Channel> OnReceivedData;
-        public event Action<int> OnDisconnected;
-        public event Action<int, string> OnReceivedError;
-
-        private readonly List<Connection> connections = new List<Connection>();
-
-        private BidirectionalDictionary<HSteamNetConnection, int> connToMirrorID;
-        private BidirectionalDictionary<CSteamID, int> steamIDToMirrorID;
-        private int maxConnections;
-        private int nextConnectionID;
+        public event Action<SteamConnection> OnConnected;
+        //public event Action<SteamConnection, byte[], Channel> OnReceivedData;
+        public event Action<SteamConnection> OnDisconnected;
+        public event Action<SteamConnection, string> OnReceivedError;
 
         private HSteamListenSocket listenSocket;
+        private HSteamNetPollGroup pollGroup;
+        private readonly Dictionary<HSteamNetConnection, SteamConnection> connections = new Dictionary<HSteamNetConnection, SteamConnection>();
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        public Server(int maxConnections, bool gameServer) : base(gameServer)
+        public Server(bool gameServer) : base(gameServer)
         {
-            this.maxConnections = maxConnections;
-            connToMirrorID = new BidirectionalDictionary<HSteamNetConnection, int>();
-            steamIDToMirrorID = new BidirectionalDictionary<CSteamID, int>();
-            nextConnectionID = 1;
             c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
         }
 
@@ -65,10 +113,12 @@ namespace Mirror.FizzySteam
             if (GameServer)
             {
                 listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
+                pollGroup = SteamGameServerNetworkingSockets.CreatePollGroup();
             }
             else
             {
                 listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
+                pollGroup = SteamNetworkingSockets.CreatePollGroup();
             }
         }
 
@@ -77,19 +127,7 @@ namespace Mirror.FizzySteam
             ulong clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
             if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connecting)
             {
-                if (connections.Count >= maxConnections)
-                {
-                    Debug.Log($"Incoming connection {clientSteamID} would exceed max connection count. Rejecting.");
-                    if (GameServer)
-                    {
-                        SteamGameServerNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
-                    }
-                    else
-                    {
-                        SteamNetworkingSockets.CloseConnection(param.m_hConn, 0, "Max Connection Count", false);
-                    }
-                    return;
-                }
+                // TODO validate if user can join, or call CloseConnection
 
                 EResult res;
                 if (GameServer)
@@ -112,17 +150,22 @@ namespace Mirror.FizzySteam
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected)
             {
-                int connectionId = nextConnectionID++;
-                connToMirrorID.Add(param.m_hConn, connectionId);
-                steamIDToMirrorID.Add(param.m_info.m_identityRemote.GetSteamID(), connectionId);
-                OnConnected?.Invoke(connectionId);
-                Debug.Log($"Client with SteamID {clientSteamID} connected. Assigning connection id {connectionId}");
+                var connection = new SteamConnection(param.m_hConn, param.m_info.m_identityRemote.GetSteamID());
+                connections.Add(param.m_hConn, connection);
+                OnConnected?.Invoke(connection);
+
+                if (GameServer)
+                    SteamGameServerNetworkingSockets.SetConnectionPollGroup(param.m_hConn, pollGroup);
+                else
+                    SteamNetworkingSockets.SetConnectionPollGroup(param.m_hConn, pollGroup);
+
+                Debug.Log($"Client with SteamID {clientSteamID} connected. Assigning connection id {connection}");
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer || param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
-                if (connToMirrorID.TryGetValue(param.m_hConn, out int connId))
+                if (connections.TryGetValue(param.m_hConn, out SteamConnection conn))
                 {
-                    InternalDisconnect(connId, param.m_hConn);
+                    InternalDisconnect(conn, "Graceful disconnect");
                 }
             }
             else
@@ -131,128 +174,99 @@ namespace Mirror.FizzySteam
             }
         }
 
-        private void InternalDisconnect(int connId, HSteamNetConnection socket)
+        private void InternalDisconnect(SteamConnection conn, string reason)
         {
-            OnDisconnected?.Invoke(connId);
+            HSteamNetConnection connId = conn.id;
             if (GameServer)
             {
-                SteamGameServerNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
+                SteamGameServerNetworkingSockets.SetConnectionPollGroup(connId, HSteamNetPollGroup.Invalid);
+                SteamGameServerNetworkingSockets.CloseConnection(connId, 0, reason, false);
             }
             else
             {
-                SteamNetworkingSockets.CloseConnection(socket, 0, "Graceful disconnect", false);
+                SteamNetworkingSockets.SetConnectionPollGroup(connId, HSteamNetPollGroup.Invalid);
+                SteamNetworkingSockets.CloseConnection(connId, 0, reason, false);
             }
-            connToMirrorID.Remove(connId);
-            steamIDToMirrorID.Remove(connId);
-            Debug.Log($"Client with ConnectionID {connId} disconnected.");
+
+            conn.Disconnected = true;
+            connections.Remove(conn.id);
+            Debug.Log($"Connection id {conn} disconnected with reason: {reason}");
+            OnDisconnected?.Invoke(conn);
         }
 
-        public void Disconnect(int connectionId)
+        public void Disconnect(SteamConnection conn)
         {
-            if (connToMirrorID.TryGetValue(connectionId, out HSteamNetConnection conn))
+            if (conn.Disconnected)
             {
-                Debug.Log($"Connection id {connectionId} disconnected.");
-                if (GameServer)
-                {
-                    SteamGameServerNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
-                }
-                else
-                {
-                    SteamNetworkingSockets.CloseConnection(conn, 0, "Disconnected by server", false);
-                }
-                steamIDToMirrorID.Remove(connectionId);
-                connToMirrorID.Remove(connectionId);
-                OnDisconnected?.Invoke(connectionId);
+                Debug.LogWarning($"Trying to disconnect {conn} but it is already disconnected");
+                return;
             }
-            else
-            {
-                Debug.LogWarning("Trying to disconnect unknown connection id: " + connectionId);
-            }
+
+            InternalDisconnect(conn, "Disconnected by server");
         }
 
         public void FlushData()
         {
-            foreach (HSteamNetConnection conn in connToMirrorID.FirstTypes.ToList())
+            foreach (HSteamNetConnection conn in connections.Keys)
             {
                 if (GameServer)
-                {
                     SteamGameServerNetworkingSockets.FlushMessagesOnConnection(conn);
-                }
                 else
-                {
                     SteamNetworkingSockets.FlushMessagesOnConnection(conn);
-                }
             }
         }
 
-        public void ReceiveData()
+        protected override bool CanPoll()
         {
-            foreach (HSteamNetConnection conn in connToMirrorID.FirstTypes.ToList())
-            {
-                if (connToMirrorID.TryGetValue(conn, out int connId))
-                {
-                    var ptrs = new IntPtr[MAX_MESSAGES];
-                    int messageCount;
+            return connections.Count > 0;
+        }
 
-                    if (GameServer)
+        protected override void ReceiveData()
+        {
+            int messageCount = GameServer
+                ? SteamGameServerNetworkingSockets.ReceiveMessagesOnPollGroup(pollGroup, receivePtrs, receivePtrs.Length)
+                : SteamNetworkingSockets.ReceiveMessagesOnPollGroup(pollGroup, receivePtrs, receivePtrs.Length);
+
+            for (int i = 0; i < messageCount; i++)
+            {
+                try
+                {
+                    SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
+                    HSteamNetConnection connId = data.m_conn;
+                    if (connections.TryGetValue(connId, out SteamConnection conn))
                     {
-                        messageCount = SteamGameServerNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES);
+                        Buffer buffer = CopyToBuffer(data);
+                        receiveQueue.Enqueue((conn, buffer));
                     }
                     else
                     {
-                        messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(conn, ptrs, MAX_MESSAGES);
-                    }
-
-                    if (messageCount > 0)
-                    {
-                        for (int i = 0; i < messageCount; i++)
-                        {
-                            (byte[] data, Channel ch) = ProcessMessage(ptrs[i]);
-                            OnReceivedData?.Invoke(connId, data, ch);
-                        }
+                        Debug.LogWarning($"Failed to find connection for {connId}");
                     }
                 }
-            }
-        }
-
-        public void Send(int connectionId, byte[] data, Channel channelId)
-        {
-            if (connToMirrorID.TryGetValue(connectionId, out HSteamNetConnection conn))
-            {
-                EResult res = SendSocket(conn, data, channelId);
-
-                if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
+                finally
                 {
-                    Debug.Log($"Connection to {connectionId} was lost.");
-                    InternalDisconnect(connectionId, conn);
-                }
-                else if (res != EResult.k_EResultOK)
-                {
-                    Debug.LogError($"Could not send: {res}");
+                    SteamNetworkingMessage_t.Release(receivePtrs[i]);
                 }
             }
-            else
-            {
-                Debug.LogError("Trying to send on an unknown connection: " + connectionId);
-                OnReceivedError?.Invoke(connectionId, "ERROR Unknown Connection");
-            }
         }
 
-        public string ServerGetClientAddress(int connectionId)
+        public override void Send(SteamConnection conn, ArraySegment<byte> data, Channel channelId)
         {
-            if (steamIDToMirrorID.TryGetValue(connectionId, out CSteamID steamId))
+            HSteamNetConnection connId = conn.id;
+            EResult res = SendSocket(connId, data, channelId);
+
+            if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
             {
-                return steamId.ToString();
+                Debug.Log($"Connection to {conn} was lost.");
+                InternalDisconnect(conn, "No Connection");
             }
-            else
+            else if (res != EResult.k_EResultOK)
             {
-                Debug.LogError("Trying to get info on an unknown connection: " + connectionId);
-                OnReceivedError?.Invoke(connectionId, "ERROR Unknown Connection");
-                return string.Empty;
+                Debug.LogError($"Could not send: {res}");
             }
         }
 
-        public void Shutdown()
+        public override void Shutdown()
         {
             if (GameServer)
             {
@@ -265,90 +279,6 @@ namespace Mirror.FizzySteam
 
             c_onConnectionChange?.Dispose();
             c_onConnectionChange = null;
-        }
-    }
-
-    public class BidirectionalDictionary<T1, T2> : IEnumerable
-    {
-        private Dictionary<T1, T2> t1ToT2Dict = new Dictionary<T1, T2>();
-        private Dictionary<T2, T1> t2ToT1Dict = new Dictionary<T2, T1>();
-
-        public IEnumerable<T1> FirstTypes => t1ToT2Dict.Keys;
-        public IEnumerable<T2> SecondTypes => t2ToT1Dict.Keys;
-
-        public IEnumerator GetEnumerator() => t1ToT2Dict.GetEnumerator();
-
-        public int Count => t1ToT2Dict.Count;
-
-        public void Add(T1 key, T2 value)
-        {
-            if (t1ToT2Dict.ContainsKey(key))
-            {
-                Remove(key);
-            }
-
-            t1ToT2Dict[key] = value;
-            t2ToT1Dict[value] = key;
-        }
-
-        public void Add(T2 key, T1 value)
-        {
-            if (t2ToT1Dict.ContainsKey(key))
-            {
-                Remove(key);
-            }
-
-            t2ToT1Dict[key] = value;
-            t1ToT2Dict[value] = key;
-        }
-
-        public T2 Get(T1 key) => t1ToT2Dict[key];
-
-        public T1 Get(T2 key) => t2ToT1Dict[key];
-
-        public bool TryGetValue(T1 key, out T2 value) => t1ToT2Dict.TryGetValue(key, out value);
-
-        public bool TryGetValue(T2 key, out T1 value) => t2ToT1Dict.TryGetValue(key, out value);
-
-        public bool Contains(T1 key) => t1ToT2Dict.ContainsKey(key);
-
-        public bool Contains(T2 key) => t2ToT1Dict.ContainsKey(key);
-
-        public void Remove(T1 key)
-        {
-            if (Contains(key))
-            {
-                T2 val = t1ToT2Dict[key];
-                t1ToT2Dict.Remove(key);
-                t2ToT1Dict.Remove(val);
-            }
-        }
-        public void Remove(T2 key)
-        {
-            if (Contains(key))
-            {
-                T1 val = t2ToT1Dict[key];
-                t1ToT2Dict.Remove(val);
-                t2ToT1Dict.Remove(key);
-            }
-        }
-
-        public T1 this[T2 key]
-        {
-            get => t2ToT1Dict[key];
-            set
-            {
-                Add(key, value);
-            }
-        }
-
-        public T2 this[T1 key]
-        {
-            get => t1ToT2Dict[key];
-            set
-            {
-                Add(key, value);
-            }
         }
     }
 }

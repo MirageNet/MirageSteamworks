@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Steamworks;
@@ -14,21 +14,17 @@ namespace Mirror.FizzySteam
 
         private readonly TimeSpan ConnectionTimeout;
 
-        public event Action<byte[], Channel> OnReceivedData;
         public event Action OnConnected;
         public event Action OnDisconnected;
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
 
         private CancellationTokenSource cancelToken;
         private TaskCompletionSource<Task> connectedComplete;
-        private CSteamID hostSteamID = CSteamID.Nil;
-        private HSteamNetConnection HostConnection;
-        private readonly List<Action> BufferedData;
+        private SteamConnection connection;
 
         public Client(float timeoutSeconds, bool gameServer) : base(gameServer)
         {
             ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1f, timeoutSeconds));
-            BufferedData = new List<Action>();
         }
 
         public void Connect(CSteamID hostSteamID)
@@ -73,7 +69,8 @@ namespace Mirror.FizzySteam
                 smi.SetSteamID(hostSteamID);
 
                 var options = new SteamNetworkingConfigValue_t[] { };
-                HostConnection = SteamNetworkingSockets.ConnectP2P(ref smi, 0, options.Length, options);
+                HSteamNetConnection connId = SteamNetworkingSockets.ConnectP2P(ref smi, 0, options.Length, options);
+                connection = new SteamConnection(connId, hostSteamID);
 
                 Task connectedCompleteTask = connectedComplete.Task;
                 var timeOutTask = Task.Delay(ConnectionTimeout, cancelToken.Token);
@@ -125,17 +122,6 @@ namespace Mirror.FizzySteam
                 Connected = true;
                 OnConnected.Invoke();
                 Debug.Log("Connection established.");
-
-                if (BufferedData.Count > 0)
-                {
-                    Debug.Log($"{BufferedData.Count} received before connection was established. Processing now.");
-                    {
-                        foreach (Action a in BufferedData)
-                        {
-                            a();
-                        }
-                    }
-                }
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer || param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
@@ -158,11 +144,11 @@ namespace Mirror.FizzySteam
                 InternalDisconnect();
             }
 
-            if (HostConnection.m_HSteamNetConnection != 0)
+            if (connection != null)
             {
                 Debug.Log("Sending Disconnect message");
-                SteamNetworkingSockets.CloseConnection(HostConnection, 0, "Graceful disconnect", false);
-                HostConnection.m_HSteamNetConnection = 0;
+                SteamNetworkingSockets.CloseConnection(connection.id, 0, "Graceful disconnect", false);
+                connection = null;
             }
         }
 
@@ -180,36 +166,38 @@ namespace Mirror.FizzySteam
             Connected = false;
             OnDisconnected.Invoke();
             Debug.Log("Disconnected.");
-            SteamNetworkingSockets.CloseConnection(HostConnection, 0, "Disconnected", false);
+            SteamNetworkingSockets.CloseConnection(connection.id, 0, "Disconnected", false);
         }
 
-        public void ReceiveData()
+        protected override bool CanPoll()
         {
-            var ptrs = new IntPtr[MAX_MESSAGES];
-            int messageCount;
+            return Connected;
+        }
 
-            if ((messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(HostConnection, ptrs, MAX_MESSAGES)) > 0)
+        protected override void ReceiveData()
+        {
+            int messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(connection.id, receivePtrs, receivePtrs.Length);
+            for (int i = 0; i < messageCount; i++)
             {
-                for (int i = 0; i < messageCount; i++)
+                try
                 {
-                    (byte[] data, Channel ch) = ProcessMessage(ptrs[i]);
-                    if (Connected)
-                    {
-                        OnReceivedData(data, ch);
-                    }
-                    else
-                    {
-                        BufferedData.Add(() => OnReceivedData(data, ch));
-                    }
+                    SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
+                    HSteamNetConnection connId = data.m_conn;
+                    Buffer buffer = CopyToBuffer(data);
+                    receiveQueue.Enqueue((connection, buffer));
+                }
+                finally
+                {
+                    SteamNetworkingMessage_t.Release(receivePtrs[i]);
                 }
             }
         }
 
-        public void Send(byte[] data, Channel channelId)
+        public override void Send(SteamConnection _, ArraySegment<byte> data, Channel channelId)
         {
             try
             {
-                EResult res = SendSocket(HostConnection, data, channelId);
+                EResult res = SendSocket(connection.id, data, channelId);
 
                 if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
                 {
@@ -232,7 +220,9 @@ namespace Mirror.FizzySteam
         private void OnConnectionFailed() => OnDisconnected.Invoke();
         public void FlushData()
         {
-            SteamNetworkingSockets.FlushMessagesOnConnection(HostConnection);
+            SteamNetworkingSockets.FlushMessagesOnConnection(connection.id);
         }
+
+        public override void Shutdown() => Disconnect();
     }
 }

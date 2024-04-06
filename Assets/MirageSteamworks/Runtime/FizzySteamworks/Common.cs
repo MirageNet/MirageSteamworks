@@ -1,11 +1,37 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Mirage.SocketLayer;
 using Steamworks;
 using UnityEngine;
 
 namespace Mirror.FizzySteam
 {
+    public class Buffer : IDisposable
+    {
+        public readonly byte[] array;
+        public int Size;
+        private readonly Pool<Buffer> _pool;
+
+        public Buffer(int bufferSize, Pool<Buffer> pool)
+        {
+            array = new byte[bufferSize];
+            _pool = pool;
+        }
+
+        public static Buffer CreateNew(int bufferSize, Pool<Buffer> pool)
+        {
+            return new Buffer(bufferSize, pool);
+        }
+
+        public void Release()
+        {
+            _pool?.Put(this);
+        }
+        void IDisposable.Dispose() => Release();
+    }
+
     public abstract class Common
     {
         protected const int MAX_MESSAGES = 256;
@@ -20,10 +46,17 @@ namespace Mirror.FizzySteam
         /// if the <see cref="SteamGameServerNetworkingSockets"/> should be used instead of <see cref="SteamNetworkingSockets"/>
         /// </summary>
         protected readonly bool GameServer;
+        private readonly Pool<Buffer> pool;
+        private readonly int maxBufferSize;
+        protected readonly Queue<(SteamConnection conn, Buffer buffer)> receiveQueue = new Queue<(SteamConnection conn, Buffer buffer)>();
+        protected readonly IntPtr[] receivePtrs = new IntPtr[MAX_MESSAGES];
 
         protected Common(bool gameServer)
         {
             GameServer = gameServer;
+            // -1 because we store channel
+            maxBufferSize = Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend - 1;
+            pool = new Pool<Buffer>(Buffer.CreateNew, maxBufferSize, 100, 1000, null);
         }
 
         public static int ChanelToSteamConst(Channel channel)
@@ -51,43 +84,80 @@ namespace Mirror.FizzySteam
             }
         }
 
-        protected EResult SendSocket(HSteamNetConnection conn, byte[] data, Channel channelId)
+        protected unsafe EResult SendSocket(HSteamNetConnection conn, ArraySegment<byte> data, Channel channel)
         {
-            // todo why do we append this to end?? (bad allocations)
-            Array.Resize(ref data, data.Length + 1);
-            data[data.Length - 1] = (byte)channelId;
+            int length = data.Count;
+            if (length > maxBufferSize)
+                throw new ArgumentException("Data is over maxBufferSize, Size={data.m_cbSize}, Max={maxBufferSize}");
+            byte[] array = data.Array;
 
-            var pinnedArray = GCHandle.Alloc(data, GCHandleType.Pinned);
-            IntPtr pData = pinnedArray.AddrOfPinnedObject();
-            int sendFlag = ChanelToSteamConst(channelId);
-            EResult res;
-            if (GameServer)
+            fixed (byte* arrayPtr = array)
             {
-                res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
+                int sendFlag = ChanelToSteamConst(channel);
+
+                var intPtr = new IntPtr(arrayPtr + data.Offset);
+
+                EResult res;
+                if (GameServer)
+                {
+                    res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out long _);
+                }
+                else
+                {
+                    res = SteamNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out long _);
+                }
+
+                if (res != EResult.k_EResultOK)
+                {
+                    Debug.LogWarning($"Send issue: {res}");
+                }
+                return res;
+            }
+        }
+
+        protected Buffer CopyToBuffer(SteamNetworkingMessage_t data)
+        {
+            Buffer buffer;
+            if (data.m_cbSize > maxBufferSize)
+            {
+                Debug.LogWarning($"Steam message was greater tha buffer pool, Size={data.m_cbSize}, Max={maxBufferSize}");
+                buffer = new Buffer(data.m_cbSize, null);
             }
             else
             {
-                res = SteamNetworkingSockets.SendMessageToConnection(conn, pData, (uint)data.Length, sendFlag, out long _);
+                buffer = pool.Take();
             }
-            if (res != EResult.k_EResultOK)
-            {
-                Debug.LogWarning($"Send issue: {res}");
-            }
-
-            pinnedArray.Free();
-            return res;
+            Marshal.Copy(data.m_pData, buffer.array, 0, data.m_cbSize);
+            return buffer;
         }
 
-        protected (byte[], Channel) ProcessMessage(IntPtr ptrs)
+        public bool Poll()
         {
-            SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(ptrs);
-            byte[] managedArray = new byte[data.m_cbSize];
-            Marshal.Copy(data.m_pData, managedArray, 0, data.m_cbSize);
-            SteamNetworkingMessage_t.Release(ptrs);
+            if (!CanPoll())
+                return false;
 
-            var channel = (Channel)managedArray[managedArray.Length - 1];
-            Array.Resize(ref managedArray, managedArray.Length - 1);
-            return (managedArray, channel);
+            if (receiveQueue.Count == 0)
+                ReceiveData();
+
+            return receiveQueue.Count > 0;
         }
+
+        protected abstract bool CanPoll();
+        protected abstract void ReceiveData();
+
+        public int Receive(byte[] buffer, out SteamConnection connection)
+        {
+            (SteamConnection conn, Buffer data) = receiveQueue.Dequeue();
+            int size = data.Size;
+
+            System.Buffer.BlockCopy(data.array, 0, buffer, 0, size);
+            data.Release();
+
+            connection = conn;
+            return data.Size;
+        }
+
+        public abstract void Send(SteamConnection conn, ArraySegment<byte> data, Channel channelId);
+        public abstract void Shutdown();
     }
 }
