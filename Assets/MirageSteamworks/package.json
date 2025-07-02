@@ -1,7 +1,7 @@
 {
     "name": "com.miragenet.steamworkssocket",
     "displayName": "Mirage Steamworks.net Socket",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "unity": "2022.3",
     "description": "Steam transport for Mirage using Steamworks.net",
     "author": "James Frowen",
