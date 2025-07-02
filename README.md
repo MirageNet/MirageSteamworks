@@ -16,7 +16,7 @@ When installing via package manager `Mirage` and `Steamworks.NET` will be automa
 
 ## Installation
 
-#### Install via Package manager gui
+#### Install via OpenUPM Package manager gui
 
 1) Add openupm registry.  Click on the menu Edit -> Project settings...,  and add a scoped registry like so: <br/>
     Name: `OpenUPM` <br/>
@@ -31,9 +31,10 @@ When installing via package manager `Mirage` and `Steamworks.NET` will be automa
 5) select the latest version of `Mirage Steamworks.net Socket` and click install, like so:
 6) You may come back to the package manager to unistall `Mirage Steamworks.net Socket` or upgrade it.
 
-#### Install via manifest.json
+#### Install via OpenUPM manifest.json
 
 add `com.miragenet.steamworkssocket` to your unity `manifest.json` file, make sure to use latest versions 
+
 ```json
 {
   "dependencies": {
@@ -54,6 +55,19 @@ add `com.miragenet.steamworkssocket` to your unity `manifest.json` file, make su
       ]
     }
   ]
+}
+```
+
+#### Install via git url
+
+add `com.miragenet.steamworkssocket` to your unity `manifest.json` file, and set git url. Make sure to set version tag
+
+```json
+{
+  "dependencies": {
+    "com.miragenet.steamworkssocket": "https://github.com/MirageNet/MirageSteamworks.git?path=/Assets/MirageSteamworks#v1.0.0",
+    // ...   
+  }
 }
 ```
 
