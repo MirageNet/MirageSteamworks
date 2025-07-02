@@ -8,11 +8,6 @@ namespace Mirage.SteamworksSocket
 {
     public class Server : Common
     {
-        public event Action<SteamConnection> OnConnected;
-        //public event Action<SteamConnection, byte[], Channel> OnReceivedData;
-        public event Action<SteamConnection> OnDisconnected;
-        public event Action<SteamConnection, string> OnReceivedError;
-
         private HSteamListenSocket listenSocket;
         private HSteamNetPollGroup pollGroup;
         private readonly Dictionary<HSteamNetConnection, SteamConnection> connections = new Dictionary<HSteamNetConnection, SteamConnection>();
@@ -61,7 +56,7 @@ namespace Mirage.SteamworksSocket
 
         private void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
         {
-            ulong clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
+            var clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
             if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connecting)
             {
                 // TODO validate if user can join, or call CloseConnection
@@ -89,7 +84,7 @@ namespace Mirage.SteamworksSocket
             {
                 var connection = new SteamConnection(param.m_hConn, param.m_info.m_identityRemote.GetSteamID());
                 connections.Add(param.m_hConn, connection);
-                OnConnected?.Invoke(connection);
+                CallOnConnected(connection);
 
                 if (GameServer)
                     SteamGameServerNetworkingSockets.SetConnectionPollGroup(param.m_hConn, pollGroup);
@@ -100,7 +95,7 @@ namespace Mirage.SteamworksSocket
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer || param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
-                if (connections.TryGetValue(param.m_hConn, out SteamConnection conn))
+                if (connections.TryGetValue(param.m_hConn, out var conn))
                 {
                     InternalDisconnect(conn, "Graceful disconnect");
                 }
@@ -111,9 +106,13 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        private void InternalDisconnect(SteamConnection conn, string reason)
+        protected override void InternalDisconnect(SteamConnection conn, string reason)
         {
-            HSteamNetConnection connId = conn.id;
+            var connId = conn.ConnId;
+            connections.Remove(connId);
+
+            conn.Disconnected = true;
+
             if (GameServer)
             {
                 SteamGameServerNetworkingSockets.SetConnectionPollGroup(connId, HSteamNetPollGroup.Invalid);
@@ -125,10 +124,8 @@ namespace Mirage.SteamworksSocket
                 SteamNetworkingSockets.CloseConnection(connId, 0, reason, false);
             }
 
-            conn.Disconnected = true;
-            connections.Remove(conn.id);
             Debug.Log($"Connection id {conn} disconnected with reason: {reason}");
-            OnDisconnected?.Invoke(conn);
+            CallOnDisconnected(conn);
         }
 
         public void Disconnect(SteamConnection conn)
@@ -142,9 +139,9 @@ namespace Mirage.SteamworksSocket
             InternalDisconnect(conn, "Disconnected by server");
         }
 
-        public void FlushData()
+        public override void FlushData()
         {
-            foreach (HSteamNetConnection conn in connections.Keys)
+            foreach (var conn in connections.Keys)
             {
                 if (GameServer)
                     SteamGameServerNetworkingSockets.FlushMessagesOnConnection(conn);
@@ -153,31 +150,28 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        protected override bool CanPoll()
+        public override void ReceiveData()
         {
-            return connections.Count > 0;
-        }
+            if (connections.Count == 0)
+                return;
 
-        protected override void ReceiveData()
-        {
-            int messageCount = GameServer
+            var messageCount = GameServer
                 ? SteamGameServerNetworkingSockets.ReceiveMessagesOnPollGroup(pollGroup, receivePtrs, receivePtrs.Length)
                 : SteamNetworkingSockets.ReceiveMessagesOnPollGroup(pollGroup, receivePtrs, receivePtrs.Length);
 
-            for (int i = 0; i < messageCount; i++)
+            for (var i = 0; i < messageCount; i++)
             {
                 try
                 {
-                    SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
-                    HSteamNetConnection connId = data.m_conn;
-                    if (connections.TryGetValue(connId, out SteamConnection conn))
+                    var msg = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
+                    if (connections.TryGetValue(msg.m_conn, out var conn))
                     {
-                        Buffer buffer = CopyToBuffer(data);
-                        receiveQueue.Enqueue((conn, buffer));
+                        var buffer = CopyToBuffer(msg);
+                        CallOnData(conn, buffer);
                     }
                     else
                     {
-                        Debug.LogWarning($"Failed to find connection for {connId}");
+                        Debug.LogWarning($"Failed to find connection for {msg.m_conn}");
                     }
                 }
                 finally
@@ -187,15 +181,17 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        public override void Send(SteamConnection conn, ArraySegment<byte> data, Channel channelId)
+        public override void Send(SteamConnection connection, ArraySegment<byte> data, Channel channelId)
         {
-            HSteamNetConnection connId = conn.id;
-            EResult res = SendSocket(connId, data, channelId);
+            if (connection.Disconnected)
+                Debug.LogWarning("Send called after Disconnected");
+
+            var res = SendSocket(connection.ConnId, data, channelId);
 
             if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
             {
-                Debug.Log($"Connection to {conn} was lost.");
-                InternalDisconnect(conn, "No Connection");
+                Debug.Log($"Connection to {connection} was lost.");
+                InternalDisconnect(connection, "No Connection");
             }
             else if (res != EResult.k_EResultOK)
             {
@@ -208,12 +204,15 @@ namespace Mirage.SteamworksSocket
             if (GameServer)
             {
                 SteamGameServerNetworkingSockets.CloseListenSocket(listenSocket);
+                SteamGameServerNetworkingSockets.DestroyPollGroup(pollGroup);
             }
             else
             {
                 SteamNetworkingSockets.CloseListenSocket(listenSocket);
+                SteamNetworkingSockets.DestroyPollGroup(pollGroup);
             }
 
+            pollGroup = default;
             c_onConnectionChange?.Dispose();
             c_onConnectionChange = null;
         }

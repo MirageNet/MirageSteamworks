@@ -1,22 +1,22 @@
-﻿using Steamworks;
+using Steamworks;
 
 namespace Mirage.SteamworksSocket
 {
     public class SteamConnection
     {
-        public readonly HSteamNetConnection id;
-        public readonly CSteamID cSteamID;
+        public HSteamNetConnection ConnId;
+        public CSteamID SteamID;
         public bool Disconnected;
 
         public SteamConnection(HSteamNetConnection hConn, CSteamID cSteamID)
         {
-            id = hConn;
-            this.cSteamID = cSteamID;
+            ConnId = hConn;
+            SteamID = cSteamID;
         }
 
         public override string ToString()
         {
-            return $"SteamConnection({cSteamID})";
+            return $"SteamConnection({SteamID})";
         }
     }
 }

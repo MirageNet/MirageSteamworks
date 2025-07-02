@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Mirage.SocketLayer;
@@ -10,13 +9,13 @@ namespace Mirage.SteamworksSocket
 {
     public class Buffer : IDisposable
     {
-        public readonly byte[] array;
+        public readonly byte[] Array;
         public int Size;
         private readonly Pool<Buffer> _pool;
 
         public Buffer(int bufferSize, Pool<Buffer> pool)
         {
-            array = new byte[bufferSize];
+            Array = new byte[bufferSize];
             _pool = pool;
         }
 
@@ -46,18 +45,24 @@ namespace Mirage.SteamworksSocket
         /// if the <see cref="SteamGameServerNetworkingSockets"/> should be used instead of <see cref="SteamNetworkingSockets"/>
         /// </summary>
         protected readonly bool GameServer;
-        private readonly Pool<Buffer> pool;
-        private readonly int maxBufferSize;
-        protected readonly Queue<(SteamConnection conn, Buffer buffer)> receiveQueue = new Queue<(SteamConnection conn, Buffer buffer)>();
+        protected readonly Pool<Buffer> pool;
+        protected readonly int maxBufferSize;
         protected readonly IntPtr[] receivePtrs = new IntPtr[MAX_MESSAGES];
+
+        public event Action<SteamConnection> OnConnected;
+        public event Action<SteamConnection, Buffer> OnData;
+        public event Action<SteamConnection> OnDisconnected;
 
         protected Common(bool gameServer)
         {
             GameServer = gameServer;
-            // -1 because we store channel
-            maxBufferSize = Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend - 1;
+            maxBufferSize = Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend;
             pool = new Pool<Buffer>(Buffer.CreateNew, maxBufferSize, 100, 1000, null);
         }
+
+        protected void CallOnConnected(SteamConnection connection) => OnConnected?.Invoke(connection);
+        protected void CallOnData(SteamConnection connection, Buffer buffer) => OnData?.Invoke(connection, buffer);
+        protected void CallOnDisconnected(SteamConnection connection) => OnDisconnected?.Invoke(connection);
 
         public static int ChanelToSteamConst(Channel channel)
         {
@@ -71,6 +76,7 @@ namespace Mirage.SteamworksSocket
                     throw new InvalidEnumArgumentException(nameof(channel), (int)channel, typeof(Channel));
             }
         }
+
         public static Channel SteamConstToChannel(int steamConst)
         {
             switch (steamConst)
@@ -86,25 +92,25 @@ namespace Mirage.SteamworksSocket
 
         protected unsafe EResult SendSocket(HSteamNetConnection conn, ArraySegment<byte> data, Channel channel)
         {
-            int length = data.Count;
+            var length = data.Count;
             if (length > maxBufferSize)
-                throw new ArgumentException("Data is over maxBufferSize, Size={data.m_cbSize}, Max={maxBufferSize}");
-            byte[] array = data.Array;
+                throw new ArgumentException($"Data is over maxBufferSize, Size={data.Count}, Max={maxBufferSize}");
+            var array = data.Array;
 
             fixed (byte* arrayPtr = array)
             {
-                int sendFlag = ChanelToSteamConst(channel);
+                var sendFlag = ChanelToSteamConst(channel);
 
                 var intPtr = new IntPtr(arrayPtr + data.Offset);
 
                 EResult res;
                 if (GameServer)
                 {
-                    res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out long _);
+                    res = SteamGameServerNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out var _);
                 }
                 else
                 {
-                    res = SteamNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out long _);
+                    res = SteamNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out var _);
                 }
 
                 if (res != EResult.k_EResultOK)
@@ -115,49 +121,60 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        protected Buffer CopyToBuffer(SteamNetworkingMessage_t data)
+        protected Buffer CopyToBuffer(SteamNetworkingMessage_t msg)
         {
             Buffer buffer;
-            if (data.m_cbSize > maxBufferSize)
+            if (msg.m_cbSize > maxBufferSize)
             {
-                Debug.LogWarning($"Steam message was greater tha buffer pool, Size={data.m_cbSize}, Max={maxBufferSize}");
-                buffer = new Buffer(data.m_cbSize, null);
+                Debug.LogWarning($"Steam message was greater tha buffer pool, Size={msg.m_cbSize}, Max={maxBufferSize}");
+                buffer = new Buffer(msg.m_cbSize, null);
             }
             else
             {
                 buffer = pool.Take();
             }
-            Marshal.Copy(data.m_pData, buffer.array, 0, data.m_cbSize);
+            Marshal.Copy(msg.m_pData, buffer.Array, 0, msg.m_cbSize);
+            buffer.Size = msg.m_cbSize;
             return buffer;
         }
 
-        public bool Poll()
+        public virtual void Send(SteamConnection connection, ArraySegment<byte> data, Channel channelId)
         {
-            if (!CanPoll())
-                return false;
+            if (connection == null)
+            {
+                Debug.LogError("Steam Send called with null connection");
+                return;
+            }
 
-            if (receiveQueue.Count == 0)
-                ReceiveData();
+            try
+            {
 
-            return receiveQueue.Count > 0;
+                if (connection.Disconnected)
+                    Debug.LogWarning("Send called after Disconnected");
+
+                var res = SendSocket(connection.ConnId, data, channelId);
+
+                if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
+                {
+                    Debug.Log($"Connection to {connection} was lost.");
+                    InternalDisconnect(connection, "No Connection");
+                }
+                else if (res != EResult.k_EResultOK)
+                {
+                    Debug.LogError($"Could not send: {res}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"SteamNetworking exception during Send: {ex}");
+                InternalDisconnect(connection, "Unexpected Error");
+            }
         }
 
-        protected abstract bool CanPoll();
-        protected abstract void ReceiveData();
-
-        public int Receive(byte[] buffer, out SteamConnection connection)
-        {
-            (SteamConnection conn, Buffer data) = receiveQueue.Dequeue();
-            int size = data.Size;
-
-            System.Buffer.BlockCopy(data.array, 0, buffer, 0, size);
-            data.Release();
-
-            connection = conn;
-            return data.Size;
-        }
-
-        public abstract void Send(SteamConnection conn, ArraySegment<byte> data, Channel channelId);
+        public abstract void ReceiveData();
+        public abstract void FlushData();
         public abstract void Shutdown();
+
+        protected abstract void InternalDisconnect(SteamConnection connection, string reason);
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Mirage.SocketLayer;
 using Steamworks;
 
@@ -7,12 +7,11 @@ namespace Mirage.SteamworksSocket
     public class SteamEndPoint : IEndPoint
     {
         public SteamConnection Connection;
-        public CSteamID HostId;
 
         public SteamEndPoint() { }
         public SteamEndPoint(CSteamID hostId)
         {
-            HostId = hostId;
+            Connection = new SteamConnection(default, hostId);
         }
         private SteamEndPoint(SteamConnection conn)
         {
@@ -38,14 +37,16 @@ namespace Mirage.SteamworksSocket
 
         public override int GetHashCode()
         {
-            if (Connection != null)
-            {
-                return Connection.GetHashCode();
-            }
-            else
-            {
-                return HostId.GetHashCode();
-            }
+            return Connection != null
+                ? Connection.GetHashCode()
+                : 0;
+        }
+
+        public override string ToString()
+        {
+            return Connection != null
+                 ? Connection.ToString()
+                 : "NULL";
         }
     }
 }
