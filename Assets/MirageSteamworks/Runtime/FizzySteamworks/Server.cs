@@ -15,7 +15,10 @@ namespace Mirage.SteamworksSocket
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
         public Server(bool gameServer) : base(gameServer)
         {
-            c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
+            if (gameServer)
+                c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.CreateGameServer(OnConnectionStatusChanged);
+            else
+                c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
         }
 
         public void Start()
