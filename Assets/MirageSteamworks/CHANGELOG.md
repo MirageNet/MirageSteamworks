@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.3...v1.0.4) (2025-09-12)
+
+
+### Bug Fixes
+
+* lowering default maxPacketSize ([e8ab182](https://github.com/MirageNet/MirageSteamworks/commit/e8ab1827dd69625e1677278d2140897c670cbe23))
+
 ## [1.0.3](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.2...v1.0.3) (2025-09-12)
 
 
