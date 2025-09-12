@@ -1,3 +1,14 @@
+## [1.0.3](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.2...v1.0.3) (2025-09-12)
+
+
+### Bug Fixes
+
+* fixing max size of steam messages for unreliable channel ([ae8b637](https://github.com/MirageNet/MirageSteamworks/commit/ae8b637b5b6e0859396f81057d93399ea99a93d8))
+* passing max size from socketFactory to Steamworks ([65547f4](https://github.com/MirageNet/MirageSteamworks/commit/65547f4758ec1565a567631f5f5087b22cbaf293))
+* removing unneeded error logs ([d1713e8](https://github.com/MirageNet/MirageSteamworks/commit/d1713e8b679caa1eb0a71da63e3aef601f48994c))
+* using NoDelay for Unreliable, which includes noNagle ([ce80346](https://github.com/MirageNet/MirageSteamworks/commit/ce80346b25249259b8ed002eadfb502df520fcc7))
+* using noNagle for sends ([43bdb5e](https://github.com/MirageNet/MirageSteamworks/commit/43bdb5e3e2750a47b2948f731363951108a3b3a9))
+
 ## [1.0.2](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.1...v1.0.2) (2025-08-09)
 
 
