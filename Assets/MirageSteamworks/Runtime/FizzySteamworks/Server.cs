@@ -196,10 +196,6 @@ namespace Mirage.SteamworksSocket
                 Debug.Log($"Connection to {connection} was lost.");
                 InternalDisconnect(connection, "No Connection");
             }
-            else if (res != EResult.k_EResultOK)
-            {
-                Debug.LogError($"Could not send: {res}");
-            }
         }
 
         public override void Shutdown()
