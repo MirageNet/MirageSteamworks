@@ -53,11 +53,11 @@ namespace Mirage.SteamworksSocket
         public event Action<SteamConnection, Buffer> OnData;
         public event Action<SteamConnection> OnDisconnected;
 
-        protected Common(bool gameServer)
+        protected Common(bool gameServer, int maxBufferSize)
         {
             GameServer = gameServer;
-            maxBufferSize = Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend;
-            pool = new Pool<Buffer>(Buffer.CreateNew, maxBufferSize, 100, 1000, null);
+            this.maxBufferSize = maxBufferSize;
+            pool = new Pool<Buffer>(Buffer.CreateNew, this.maxBufferSize, 100, 1000, null);
         }
 
         protected void CallOnConnected(SteamConnection connection) => OnConnected?.Invoke(connection);

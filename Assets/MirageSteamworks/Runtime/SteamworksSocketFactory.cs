@@ -38,13 +38,13 @@ namespace Mirage.SteamworksSocket
 
         public override ISocket CreateServerSocket()
         {
-            var server = new Server(GameServer);
+            var server = new Server(GameServer, MaxPacketSize);
             return new SteamSocket(server);
         }
 
         public override ISocket CreateClientSocket()
         {
-            var client = new Client(ConnectTimeout, GameServer);
+            var client = new Client(ConnectTimeout, GameServer, MaxPacketSize);
             return new SteamSocket(client);
         }
 

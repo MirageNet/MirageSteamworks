@@ -13,7 +13,7 @@ namespace Mirage.SteamworksSocket
         private readonly Dictionary<HSteamNetConnection, SteamConnection> connections = new Dictionary<HSteamNetConnection, SteamConnection>();
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        public Server(bool gameServer) : base(gameServer)
+        public Server(bool gameServer, int maxBufferSize) : base(gameServer, maxBufferSize)
         {
             if (gameServer)
                 c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.CreateGameServer(OnConnectionStatusChanged);

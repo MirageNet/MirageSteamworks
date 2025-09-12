@@ -25,7 +25,7 @@ namespace Mirage.SteamworksSocket
         private TaskCompletionSource<ConnectTaskResult> connectTask;
         private SteamConnection connection;
 
-        public Client(float timeoutSeconds, bool gameServer) : base(gameServer)
+        public Client(float timeoutSeconds, bool gameServer, int maxBufferSize) : base(gameServer, maxBufferSize)
         {
             ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1f, timeoutSeconds));
         }
