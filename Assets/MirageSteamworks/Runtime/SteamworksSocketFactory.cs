@@ -31,6 +31,8 @@ namespace Mirage.SteamworksSocket
     {
         public bool GameServer;
         public float ConnectTimeout = 60;
+        [Tooltip("Enable to use k_nSteamNetworkingSend_UnreliableNoNagle, which disables the Nagle-like algorithm for unreliable packets. Mirage controls a lot of the flow of packets, so it is better to have this flag as true")]
+        public bool noNagle = true;
         [Tooltip("Use a max packet size smaller than steams built in one, steams default is 524288 bytes. 1211 is the 1280 MTU minus the headers for ipv4, udp and steam (maybe 41 bytes?) or use 1191 for ipv6")]
         [SerializeField] private int maxPacketSize = 1211;
 
@@ -38,13 +40,13 @@ namespace Mirage.SteamworksSocket
 
         public override ISocket CreateServerSocket()
         {
-            var server = new Server(GameServer, MaxPacketSize);
+            var server = new Server(GameServer, MaxPacketSize, noNagle);
             return new SteamSocket(server);
         }
 
         public override ISocket CreateClientSocket()
         {
-            var client = new Client(ConnectTimeout, GameServer, MaxPacketSize);
+            var client = new Client(ConnectTimeout, GameServer, MaxPacketSize, noNagle);
             return new SteamSocket(client);
         }
 

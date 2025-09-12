@@ -47,16 +47,18 @@ namespace Mirage.SteamworksSocket
         protected readonly bool GameServer;
         protected readonly Pool<Buffer> pool;
         protected readonly int maxBufferSize;
+        protected readonly bool noNagle;
         protected readonly IntPtr[] receivePtrs = new IntPtr[MAX_MESSAGES];
 
         public event Action<SteamConnection> OnConnected;
         public event Action<SteamConnection, Buffer> OnData;
         public event Action<SteamConnection> OnDisconnected;
 
-        protected Common(bool gameServer, int maxBufferSize)
+        protected Common(bool gameServer, int maxBufferSize, bool noNagle)
         {
             GameServer = gameServer;
             this.maxBufferSize = maxBufferSize;
+            this.noNagle = noNagle;
             pool = new Pool<Buffer>(Buffer.CreateNew, this.maxBufferSize, 100, 1000, null);
         }
 
@@ -64,14 +66,18 @@ namespace Mirage.SteamworksSocket
         protected void CallOnData(SteamConnection connection, Buffer buffer) => OnData?.Invoke(connection, buffer);
         protected void CallOnDisconnected(SteamConnection connection) => OnDisconnected?.Invoke(connection);
 
-        public static int ChanelToSteamConst(Channel channel)
+        private int ChanelToSteamConst(Channel channel)
         {
             switch (channel)
             {
                 case Channel.Reliable:
-                    return Constants.k_nSteamNetworkingSend_Reliable;
+                    return noNagle
+                        ? Constants.k_nSteamNetworkingSend_ReliableNoNagle
+                        : Constants.k_nSteamNetworkingSend_Reliable;
                 case Channel.Unreliable:
-                    return Constants.k_nSteamNetworkingSend_Unreliable;
+                    return noNagle
+                        ? Constants.k_nSteamNetworkingSend_UnreliableNoNagle
+                        : Constants.k_nSteamNetworkingSend_Unreliable;
                 default:
                     throw new InvalidEnumArgumentException(nameof(channel), (int)channel, typeof(Channel));
             }
@@ -84,6 +90,7 @@ namespace Mirage.SteamworksSocket
                 case Constants.k_nSteamNetworkingSend_Reliable:
                     return Channel.Reliable;
                 case Constants.k_nSteamNetworkingSend_Unreliable:
+                case Constants.k_nSteamNetworkingSend_UnreliableNoNagle:
                     return Channel.Unreliable;
                 default:
                     throw new ArgumentException("Enum value not found", nameof(steamConst));
@@ -99,7 +106,7 @@ namespace Mirage.SteamworksSocket
 
             fixed (byte* arrayPtr = array)
             {
-                var sendFlag = ChanelToSteamConst(channel);
+                var sendFlag = this.ChanelToSteamConst(channel);
 
                 var intPtr = new IntPtr(arrayPtr + data.Offset);
 
