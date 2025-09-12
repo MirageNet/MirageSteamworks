@@ -76,7 +76,7 @@ namespace Mirage.SteamworksSocket
                         : Constants.k_nSteamNetworkingSend_Reliable;
                 case Channel.Unreliable:
                     return noNagle
-                        ? Constants.k_nSteamNetworkingSend_UnreliableNoNagle
+                        ? Constants.k_nSteamNetworkingSend_UnreliableNoDelay
                         : Constants.k_nSteamNetworkingSend_Unreliable;
                 default:
                     throw new InvalidEnumArgumentException(nameof(channel), (int)channel, typeof(Channel));
@@ -85,15 +85,16 @@ namespace Mirage.SteamworksSocket
 
         public static Channel SteamConstToChannel(int steamConst)
         {
-            switch (steamConst)
+            // The flags are a bitmask, so we check for the reliable flag.
+            // If it's not present, we assume unreliable. This handles all
+            // combinations like NoNagle and NoDelay.
+            if ((steamConst & Constants.k_nSteamNetworkingSend_Reliable) != 0)
             {
-                case Constants.k_nSteamNetworkingSend_Reliable:
-                    return Channel.Reliable;
-                case Constants.k_nSteamNetworkingSend_Unreliable:
-                case Constants.k_nSteamNetworkingSend_UnreliableNoNagle:
-                    return Channel.Unreliable;
-                default:
-                    throw new ArgumentException("Enum value not found", nameof(steamConst));
+                return Channel.Reliable;
+            }
+            else
+            {
+                return Channel.Unreliable;
             }
         }
 
@@ -120,7 +121,8 @@ namespace Mirage.SteamworksSocket
                     res = SteamNetworkingSockets.SendMessageToConnection(conn, intPtr, (uint)length, sendFlag, out var _);
                 }
 
-                if (res != EResult.k_EResultOK)
+                // When using NoDelay, k_EResultIgnored is an expected result, not an error.
+                if (res != EResult.k_EResultOK && res != EResult.k_EResultIgnored)
                 {
                     Debug.LogWarning($"Send issue: {res}");
                 }
