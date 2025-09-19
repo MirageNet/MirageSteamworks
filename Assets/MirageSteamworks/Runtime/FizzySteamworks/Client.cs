@@ -87,12 +87,13 @@ namespace Mirage.SteamworksSocket
         private async Task<bool> TryConnectAsync()
         {
             connectTask = new TaskCompletionSource<ConnectTaskResult>();
-            var smi = new SteamNetworkingIdentity();
+            var steamIdentity = new SteamNetworkingIdentity();
             var steamId = connection.SteamID;
-            smi.SetSteamID(connection.SteamID);
+            steamIdentity.SetSteamID(connection.SteamID);
+            connection.SteamNetworkingIdentity = steamIdentity;
 
             var options = new SteamNetworkingConfigValue_t[] { };
-            var connId = SteamNetworkingSockets.ConnectP2P(ref smi, 0, options.Length, options);
+            var connId = SteamNetworkingSockets.ConnectP2P(ref steamIdentity, 0, options.Length, options);
             connection.ConnId = connId;
 
             ConnectTimeout(connectTask, ConnectionTimeout);

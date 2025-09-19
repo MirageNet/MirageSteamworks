@@ -7,6 +7,8 @@ namespace Mirage.SteamworksSocket
         public HSteamNetConnection ConnId;
         public CSteamID SteamID;
         public bool Disconnected;
+        /// <summary>Identity used on client to connect to server or host</summary>
+        public SteamNetworkingIdentity SteamNetworkingIdentity;
 
         public SteamConnection(HSteamNetConnection hConn, CSteamID cSteamID)
         {
