@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.4...v1.1.0) (2025-09-19)
+
+
+### Features
+
+* adding SteamNetworkingIdentity to public field ([a208e42](https://github.com/MirageNet/MirageSteamworks/commit/a208e424f3a0bee1f5cf58a8b0498b119fa74db9))
+
 ## [1.0.4](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.3...v1.0.4) (2025-09-12)
 
 
