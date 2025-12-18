@@ -1,3 +1,15 @@
+# [1.2.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.1.0...v1.2.0) (2025-12-18)
+
+
+### Bug Fixes
+
+* using steam SteamNetConnectionEnd enum for close ([f2dc192](https://github.com/MirageNet/MirageSteamworks/commit/f2dc192a96da098580a16bb5239c728484cb2527))
+
+
+### Features
+
+* adding AcceptConnectionCallback to allow connections to be rejected ([11c565d](https://github.com/MirageNet/MirageSteamworks/commit/11c565df98b3891fe252d3a873b1766328c0b12b))
+
 # [1.1.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.0.4...v1.1.0) (2025-09-19)
 
 
