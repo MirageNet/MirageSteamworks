@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/MirageNet/MirageSteamworks/compare/v1.2.0...v1.2.1) (2025-12-18)
+
+
+### Bug Fixes
+
+* improving handling of ConnectionRejected and better disconnect reason ([d9a860e](https://github.com/MirageNet/MirageSteamworks/commit/d9a860e65cf33437e884ffbfdc45342454b9c0cc))
+
 # [1.2.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.1.0...v1.2.0) (2025-12-18)
 
 
