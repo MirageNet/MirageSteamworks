@@ -119,12 +119,12 @@ namespace Mirage.SteamworksSocket
             if (GameServer)
             {
                 SteamGameServerNetworkingSockets.SetConnectionPollGroup(connId, HSteamNetPollGroup.Invalid);
-                SteamGameServerNetworkingSockets.CloseConnection(connId, 0, reason, false);
+                SteamGameServerNetworkingSockets.CloseConnection(connId, (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic, reason, false);
             }
             else
             {
                 SteamNetworkingSockets.SetConnectionPollGroup(connId, HSteamNetPollGroup.Invalid);
-                SteamNetworkingSockets.CloseConnection(connId, 0, reason, false);
+                SteamNetworkingSockets.CloseConnection(connId, (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic, reason, false);
             }
 
             Debug.Log($"Connection id {conn} disconnected with reason: {reason}");
