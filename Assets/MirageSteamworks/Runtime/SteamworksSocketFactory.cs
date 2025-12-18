@@ -25,6 +25,24 @@ namespace Mirage.SteamworksSocket
                 return 2;
             }
         }
+
+        public static bool TryReadByte(byte[] packet, int length, int index, out byte value)
+        {
+            if (length > index)
+            {
+                value = packet[index];
+                return true;
+            }
+            else
+            {
+                value = default;
+                return false;
+            }
+        }
+        public static bool IsByteEqual(byte[] packet, int length, int index, byte value)
+        {
+            return TryReadByte(packet, length, index, out var b) && b == value;
+        }
     }
 
     public class SteamworksSocketFactory : SocketFactory
@@ -85,12 +103,25 @@ namespace Mirage.SteamworksSocket
         public SteamSocket(Common common)
         {
             this.common = common;
+            this.common.OnConnected += OnConnected;
             this.common.OnData += OnData;
-            this.common.OnDisconnected += Common_OnDisconnected;
+            this.common.OnDisconnected += OnDisconnected;
             FlushLoop(flushCancelSource.Token).Forget();
         }
 
-        private void Common_OnDisconnected(SteamConnection conn)
+        private void OnConnected(SteamConnection conn)
+        {
+            // nothing
+            if (verbose.LogEnabled()) verbose.Log("Connected event called");
+        }
+
+        private void OnData(SteamConnection conn, Buffer buffer)
+        {
+            if (verbose.LogEnabled()) verbose.Log("Data event called");
+            receiveQueue.Enqueue((conn, buffer));
+        }
+
+        private void OnDisconnected(SteamConnection conn)
         {
             var buffer = new Buffer(3, null);
             buffer.Size = SocketHelper.CreateDisconnectPacket(buffer.Array);
@@ -108,12 +139,6 @@ namespace Mirage.SteamworksSocket
                 if (verbose.LogEnabled()) verbose.Log($"Calling FlushData");
                 common.FlushData();
             }
-        }
-
-        private void OnData(SteamConnection conn, Buffer buffer)
-        {
-            if (verbose.LogEnabled()) verbose.Log("Data event called");
-            receiveQueue.Enqueue((conn, buffer));
         }
 
         public void Connect(IEndPoint endPoint)
@@ -165,9 +190,31 @@ namespace Mirage.SteamworksSocket
         public void Send(IEndPoint endPoint, byte[] packet, int length)
         {
             var conn = ((SteamEndPoint)endPoint).Connection;
-            // TODO need channel passthrough for Mirage
-            if (logger.LogEnabled()) logger.Log($"Sending {length} bytes to {conn}");
-            common.Send(conn, new ArraySegment<byte>(packet, 0, length), Common.Channel.Unreliable);
+
+            // mirage rejected the connection, we should close the steam connection here
+            if (SocketHelper.IsByteEqual(packet, length, 0, (byte)PacketType.Command)
+             && SocketHelper.IsByteEqual(packet, length, 1, (byte)Commands.ConnectionRejected))
+            {
+                var rejectReason = SocketHelper.TryReadByte(packet, length, 2, out var b)
+                    ? $"Rejected {(RejectReason)b}" // dont change format, we use it for string matching
+                    : null;
+                if (logger.LogEnabled()) logger.Log($"closing connection because of ConnectionRejected {conn}. {rejectReason}");
+
+                if (common is Server server)
+                {
+                    server.Disconnect(conn, Common.k_ESteamNetConnectionEnd_App_RejectedPeer, rejectReason);
+                }
+                else
+                {
+                    Debug.LogError($"Only server should be sending ConnectionRejected");
+                }
+            }
+            else
+            {
+                // TODO need channel passthrough for Mirage
+                if (logger.LogEnabled()) logger.Log($"Sending {length} bytes to {conn}");
+                common.Send(conn, new ArraySegment<byte>(packet, 0, length), Common.Channel.Unreliable);
+            }
         }
     }
 }

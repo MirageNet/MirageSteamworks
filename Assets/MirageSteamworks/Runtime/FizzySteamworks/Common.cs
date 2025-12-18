@@ -34,6 +34,9 @@ namespace Mirage.SteamworksSocket
     public abstract class Common
     {
         protected const int MAX_MESSAGES = 256;
+        public const int k_ESteamNetConnectionEnd_App_Generic = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min;
+        public const int k_ESteamNetConnectionEnd_App_RejectedCallback = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min + 1;
+        public const int k_ESteamNetConnectionEnd_App_RejectedPeer = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min + 2;
 
         public enum Channel
         {
@@ -107,7 +110,7 @@ namespace Mirage.SteamworksSocket
 
             fixed (byte* arrayPtr = array)
             {
-                var sendFlag = this.ChanelToSteamConst(channel);
+                var sendFlag = ChanelToSteamConst(channel);
 
                 var intPtr = new IntPtr(arrayPtr + data.Offset);
 
@@ -157,7 +160,6 @@ namespace Mirage.SteamworksSocket
 
             try
             {
-
                 if (connection.Disconnected)
                     Debug.LogWarning("Send called after Disconnected");
 
@@ -166,13 +168,13 @@ namespace Mirage.SteamworksSocket
                 if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
                 {
                     Debug.Log($"Connection to {connection} was lost.");
-                    InternalDisconnect(connection, "No Connection");
+                    InternalDisconnect(connection, null, "No Connection");
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogError($"SteamNetworking exception during Send: {ex}");
-                InternalDisconnect(connection, "Unexpected Error");
+                InternalDisconnect(connection, null, "Unexpected Error");
             }
         }
 
@@ -180,6 +182,6 @@ namespace Mirage.SteamworksSocket
         public abstract void FlushData();
         public abstract void Shutdown();
 
-        protected abstract void InternalDisconnect(SteamConnection connection, string reason);
+        protected abstract void InternalDisconnect(SteamConnection conn, int? reasonNullable, string debugString);
     }
 }

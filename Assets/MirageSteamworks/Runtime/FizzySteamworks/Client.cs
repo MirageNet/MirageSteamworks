@@ -15,6 +15,9 @@ namespace Mirage.SteamworksSocket
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
 
+        public int DisconnectReason;
+        public string DisconnectDebugString;
+
         private enum ConnectTaskResult
         {
             None,
@@ -157,12 +160,15 @@ namespace Mirage.SteamworksSocket
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer
                 || param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
-                Debug.Log($"Connection was closed by peer, {param.m_info.m_szEndDebug}");
+                DisconnectReason = param.m_info.m_eEndReason;
+                DisconnectDebugString = param.m_info.m_szEndDebug;
+
+                Debug.Log($"Connection was closed by peer, {DisconnectReason}: {DisconnectDebugString}");
                 Disconnect();
             }
             else
             {
-                Debug.Log($"Connection state changed: {param.m_info.m_eState.ToString()} - {param.m_info.m_szEndDebug}");
+                Debug.Log($"Connection state changed: {param.m_info.m_eState} - EndDebug:{param.m_info.m_szEndDebug}");
             }
         }
 
@@ -173,11 +179,11 @@ namespace Mirage.SteamworksSocket
 
             if (Connected)
             {
-                InternalDisconnect(connection, "Disconnect called");
+                InternalDisconnect(connection, null, "Disconnect called");
             }
             if (Connecting)
             {
-                InternalDisconnect(connection, "Disconnect called while Connecting");
+                InternalDisconnect(connection, null, "Disconnect called while Connecting");
             }
 
             if (connection != null)
@@ -197,15 +203,16 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        protected override void InternalDisconnect(SteamConnection inConn, string reason)
+        protected override void InternalDisconnect(SteamConnection conn, int? reasonNullable, string debugString)
         {
-            Debug.Assert(connection == inConn);
+            var reason = reasonNullable ?? (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic;
+            Debug.Assert(connection == conn);
             Connected = false;
 
             connection.Disconnected = true;
-            SteamNetworkingSockets.CloseConnection(connection.ConnId, 0, "Disconnected", false);
+            SteamNetworkingSockets.CloseConnection(connection.ConnId, reason, debugString, false);
 
-            Debug.Log($"Connection id {connection} disconnected with reason: {reason}");
+            Debug.Log($"Connection id {connection} disconnected with reason: {debugString}");
             CallOnDisconnected(connection);
         }
 
