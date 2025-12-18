@@ -8,13 +8,19 @@ namespace Mirage.SteamworksSocket
 {
     public class Server : Common
     {
+        public delegate bool AcceptConnectionCallback(SteamNetConnectionStatusChangedCallback_t param);
+
+        private readonly AcceptConnectionCallback acceptCallback;
+
         private HSteamListenSocket listenSocket;
         private HSteamNetPollGroup pollGroup;
         private readonly Dictionary<HSteamNetConnection, SteamConnection> connections = new Dictionary<HSteamNetConnection, SteamConnection>();
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
-        public Server(bool gameServer, int maxBufferSize, bool noNagle) : base(gameServer, maxBufferSize, noNagle)
+
+        public Server(bool gameServer, int maxBufferSize, bool noNagle, AcceptConnectionCallback acceptCallback) : base(gameServer, maxBufferSize, noNagle)
         {
+            this.acceptCallback = acceptCallback;
             if (gameServer)
                 c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.CreateGameServer(OnConnectionStatusChanged);
             else
@@ -62,25 +68,35 @@ namespace Mirage.SteamworksSocket
             var clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
             if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connecting)
             {
-                // TODO validate if user can join, or call CloseConnection
-
-                EResult res;
-                if (GameServer)
+                var accept = true; // default accept new connection
+                if (acceptCallback != null)
                 {
-                    res = SteamGameServerNetworkingSockets.AcceptConnection(param.m_hConn);
+                    // custom call back that developers can use to check for kick/ban before accepting connection
+                    accept = acceptCallback.Invoke(param);
+                }
+
+                if (accept)
+                {
+                    EResult res;
+                    if (GameServer)
+                        res = SteamGameServerNetworkingSockets.AcceptConnection(param.m_hConn);
+                    else
+                        res = SteamNetworkingSockets.AcceptConnection(param.m_hConn);
+
+                    if (res == EResult.k_EResultOK)
+                        Debug.Log($"Accepting connection {clientSteamID}");
+                    else
+                        Debug.Log($"Connection {clientSteamID} could not be accepted: {res}");
                 }
                 else
                 {
-                    res = SteamNetworkingSockets.AcceptConnection(param.m_hConn);
-                }
+                    var debugMsg = "Rejected by application";
+                    if (GameServer)
+                        _ = SteamGameServerNetworkingSockets.CloseConnection(param.m_hConn, (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic, debugMsg, false);
+                    else
+                        _ = SteamNetworkingSockets.CloseConnection(param.m_hConn, (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic, debugMsg, false);
 
-                if (res == EResult.k_EResultOK)
-                {
-                    Debug.Log($"Accepting connection {clientSteamID}");
-                }
-                else
-                {
-                    Debug.Log($"Connection {clientSteamID} could not be accepted: {res}");
+                    // note: dont log here, dev can log inside acceptCallback if they want to
                 }
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected)

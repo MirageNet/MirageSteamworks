@@ -36,11 +36,17 @@ namespace Mirage.SteamworksSocket
         [Tooltip("Use a max packet size smaller than steams built in one, steams default is 524288 bytes. 1198 is the 1280 MTU minus the headers for ipv4, udp and steam (largest steam header seems to be 54) or use 1178 for ipv6")]
         [SerializeField] private int maxPacketSize = 1198;
 
+        /// <summary>
+        /// Accept callback for steam connections. Used on server.
+        /// <para>Must be set before server is started</para>
+        /// </summary>
+        public Server.AcceptConnectionCallback AcceptCallback;
+
         public override int MaxPacketSize => Mathf.Min(maxPacketSize, Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend);
 
         public override ISocket CreateServerSocket()
         {
-            var server = new Server(GameServer, MaxPacketSize, noNagle);
+            var server = new Server(GameServer, MaxPacketSize, noNagle, AcceptCallback);
             return new SteamSocket(server);
         }
 
