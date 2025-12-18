@@ -69,7 +69,7 @@ namespace Mirage.SteamworksSocket
         protected void CallOnData(SteamConnection connection, Buffer buffer) => OnData?.Invoke(connection, buffer);
         protected void CallOnDisconnected(SteamConnection connection) => OnDisconnected?.Invoke(connection);
 
-        private int ChanelToSteamConst(Channel channel)
+        private int ChannelToSteamConst(Channel channel)
         {
             switch (channel)
             {
@@ -110,7 +110,7 @@ namespace Mirage.SteamworksSocket
 
             fixed (byte* arrayPtr = array)
             {
-                var sendFlag = ChanelToSteamConst(channel);
+                var sendFlag = ChannelToSteamConst(channel);
 
                 var intPtr = new IntPtr(arrayPtr + data.Offset);
 
