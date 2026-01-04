@@ -33,9 +33,11 @@ namespace Mirage.SteamworksSocket
             ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1f, timeoutSeconds));
         }
 
-        public void Connect(CSteamID hostSteamID)
+        public SteamConnection Connect(CSteamID hostSteamID)
         {
-            Connect(new SteamConnection(default, hostSteamID));
+            var connection = new SteamConnection(this, hostSteamID, hConn: default);
+            Connect(connection);
+            return connection;
         }
 
         public void Connect(SteamConnection connection)
@@ -144,8 +146,6 @@ namespace Mirage.SteamworksSocket
                 Debug.LogWarning($"Failed to set result to Success because it was already set");
         }
 
-
-
         private void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
         {
             //var clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
@@ -172,34 +172,38 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        public void Disconnect()
-        {
-            SetConnectTaskResult(connectTask, ConnectTaskResult.Cancelled);
-            Dispose();
-
-            if (Connected)
-            {
-                InternalDisconnect(connection, null, "Disconnect called");
-            }
-            if (Connecting)
-            {
-                InternalDisconnect(connection, null, "Disconnect called while Connecting");
-            }
-
-            if (connection != null)
-            {
-                Debug.Log("Sending Disconnect message");
-                SteamNetworkingSockets.CloseConnection(connection.ConnId, 0, "Graceful disconnect", false);
-                connection = null;
-            }
-        }
-
         protected void Dispose()
         {
             if (c_onConnectionChange != null)
             {
                 c_onConnectionChange.Dispose();
                 c_onConnectionChange = null;
+            }
+        }
+
+        public void Disconnect()
+        {
+            Disconnect(reason: null, debugStr: null);
+        }
+        public void Disconnect(int? reason, string debugStr = null)
+        {
+            SetConnectTaskResult(connectTask, ConnectTaskResult.Cancelled);
+            Dispose();
+
+            if (Connected)
+            {
+                InternalDisconnect(connection, reason, debugStr ?? "Disconnect called");
+            }
+            if (Connecting)
+            {
+                InternalDisconnect(connection, reason, debugStr ?? "Disconnect called while Connecting");
+            }
+
+            if (connection != null)
+            {
+                Debug.Log("Sending Disconnect message");
+                SteamNetworkingSockets.CloseConnection(connection.ConnId, reason ?? 0, debugStr ?? "Graceful disconnect", false);
+                connection = null;
             }
         }
 
@@ -216,7 +220,7 @@ namespace Mirage.SteamworksSocket
             CallOnDisconnected(connection);
         }
 
-        public override void ReceiveData()
+        public override unsafe void ReceiveData()
         {
             if (!Connected)
                 return;
@@ -227,8 +231,8 @@ namespace Mirage.SteamworksSocket
                 try
                 {
                     var msg = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
-                    var buffer = CopyToBuffer(msg);
-                    CallOnData(connection, buffer);
+                    var span = new ReadOnlySpan<byte>(msg.m_pData.ToPointer(), msg.m_cbSize);
+                    CallOnData(connection, span);
                 }
                 finally
                 {
@@ -237,7 +241,7 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        public override void Send(SteamConnection inConn, ArraySegment<byte> data, Channel channelId)
+        public override void Send(SteamConnection inConn, ReadOnlySpan<byte> span, Channel channelId)
         {
             if (!Connected && !Connecting)
                 Debug.LogWarning("Send called after Disconnected");
@@ -245,7 +249,7 @@ namespace Mirage.SteamworksSocket
             // assert connection is the same
             Debug.Assert(connection == inConn);
             // but use the field connection, because that for sure is the eone to the host
-            base.Send(connection, data, channelId);
+            base.Send(connection, span, channelId);
         }
 
         private void OnConnectionFailed()

@@ -10,7 +10,7 @@
         "url": "https://github.com/MirageNet/SteamworksSocket"
     },
     "dependencies": {
-        "com.miragenet.mirage": "147.2.1",
+        "com.miragenet.mirage": "156.2.0",
         "com.rlabrecque.steamworks.net": "20.2.0",
         "com.cysharp.unitask": "2.2.5"
     },

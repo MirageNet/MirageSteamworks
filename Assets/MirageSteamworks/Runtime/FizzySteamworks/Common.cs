@@ -31,6 +31,8 @@ namespace Mirage.SteamworksSocket
         void IDisposable.Dispose() => Release();
     }
 
+    public delegate void DataReceivedHandler(SteamConnection connection, ReadOnlySpan<byte> data);
+
     public abstract class Common
     {
         protected const int MAX_MESSAGES = 256;
@@ -54,7 +56,7 @@ namespace Mirage.SteamworksSocket
         protected readonly IntPtr[] receivePtrs = new IntPtr[MAX_MESSAGES];
 
         public event Action<SteamConnection> OnConnected;
-        public event Action<SteamConnection, Buffer> OnData;
+        public event DataReceivedHandler OnData;
         public event Action<SteamConnection> OnDisconnected;
 
         protected Common(bool gameServer, int maxBufferSize, bool noNagle)
@@ -65,9 +67,41 @@ namespace Mirage.SteamworksSocket
             pool = new Pool<Buffer>(Buffer.CreateNew, this.maxBufferSize, 100, 1000, null);
         }
 
-        protected void CallOnConnected(SteamConnection connection) => OnConnected?.Invoke(connection);
-        protected void CallOnData(SteamConnection connection, Buffer buffer) => OnData?.Invoke(connection, buffer);
-        protected void CallOnDisconnected(SteamConnection connection) => OnDisconnected?.Invoke(connection);
+        protected void CallOnConnected(SteamConnection connection)
+        {
+            try
+            {
+                OnConnected?.Invoke(connection);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error in OnConnected subscriber: {e}");
+            }
+        }
+
+        protected void CallOnData(SteamConnection connection, ReadOnlySpan<byte> span)
+        {
+            try
+            {
+                OnData?.Invoke(connection, span);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error in OnData subscriber: {e}");
+            }
+        }
+
+        protected void CallOnDisconnected(SteamConnection connection)
+        {
+            try
+            {
+                OnDisconnected?.Invoke(connection);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error in OnDisconnected subscriber: {e}");
+            }
+        }
 
         private int ChannelToSteamConst(Channel channel)
         {
@@ -101,18 +135,17 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        protected unsafe EResult SendSocket(HSteamNetConnection conn, ArraySegment<byte> data, Channel channel)
+        protected unsafe EResult SendSocket(HSteamNetConnection conn, ReadOnlySpan<byte> span, Channel channel)
         {
-            var length = data.Count;
+            var length = span.Length;
             if (length > maxBufferSize)
-                throw new ArgumentException($"Data is over maxBufferSize, Size={data.Count}, Max={maxBufferSize}");
-            var array = data.Array;
+                throw new ArgumentException($"Data is over maxBufferSize, Size={span.Length}, Max={maxBufferSize}");
 
-            fixed (byte* arrayPtr = array)
+            fixed (byte* spanPtr = span)
             {
                 var sendFlag = ChannelToSteamConst(channel);
 
-                var intPtr = new IntPtr(arrayPtr + data.Offset);
+                var intPtr = new IntPtr(spanPtr);
 
                 EResult res;
                 if (GameServer)
@@ -150,7 +183,7 @@ namespace Mirage.SteamworksSocket
             return buffer;
         }
 
-        public virtual void Send(SteamConnection connection, ArraySegment<byte> data, Channel channelId)
+        public virtual void Send(SteamConnection connection, ReadOnlySpan<byte> data, Channel channelId)
         {
             if (connection == null)
             {

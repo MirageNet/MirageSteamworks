@@ -101,7 +101,7 @@ namespace Mirage.SteamworksSocket
             }
             else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected)
             {
-                var connection = new SteamConnection(param.m_hConn, param.m_info.m_identityRemote.GetSteamID());
+                var connection = new SteamConnection(this, param.m_info.m_identityRemote.GetSteamID(), param.m_hConn);
                 connections.Add(param.m_hConn, connection);
                 CallOnConnected(connection);
 
@@ -123,6 +123,17 @@ namespace Mirage.SteamworksSocket
             {
                 Debug.Log($"Connection {clientSteamID} state changed: {param.m_info.m_eState}");
             }
+        }
+
+        public void Disconnect(SteamConnection conn, int? reason, string debugStr = null)
+        {
+            if (conn.Disconnected)
+            {
+                Debug.LogWarning($"Trying to disconnect {conn} but it is already disconnected");
+                return;
+            }
+
+            InternalDisconnect(conn, reason, debugStr ?? "Disconnected by server");
         }
 
         protected override void InternalDisconnect(SteamConnection conn, int? reasonNullable, string debugString)
@@ -148,17 +159,6 @@ namespace Mirage.SteamworksSocket
             CallOnDisconnected(conn);
         }
 
-        public void Disconnect(SteamConnection conn, int? reason, string debugStr = null)
-        {
-            if (conn.Disconnected)
-            {
-                Debug.LogWarning($"Trying to disconnect {conn} but it is already disconnected");
-                return;
-            }
-
-            InternalDisconnect(conn, reason, debugStr ?? "Disconnected by server");
-        }
-
         public override void FlushData()
         {
             foreach (var conn in connections.Keys)
@@ -170,7 +170,7 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        public override void ReceiveData()
+        public override unsafe void ReceiveData()
         {
             if (connections.Count == 0)
                 return;
@@ -186,8 +186,8 @@ namespace Mirage.SteamworksSocket
                     var msg = Marshal.PtrToStructure<SteamNetworkingMessage_t>(receivePtrs[i]);
                     if (connections.TryGetValue(msg.m_conn, out var conn))
                     {
-                        var buffer = CopyToBuffer(msg);
-                        CallOnData(conn, buffer);
+                        var span = new ReadOnlySpan<byte>(msg.m_pData.ToPointer(), msg.m_cbSize);
+                        CallOnData(conn, span);
                     }
                     else
                     {
@@ -196,17 +196,18 @@ namespace Mirage.SteamworksSocket
                 }
                 finally
                 {
+                    // Release memory back to Steam after the event returns
                     SteamNetworkingMessage_t.Release(receivePtrs[i]);
                 }
             }
         }
 
-        public override void Send(SteamConnection connection, ArraySegment<byte> data, Channel channelId)
+        public override void Send(SteamConnection connection, ReadOnlySpan<byte> span, Channel channelId)
         {
             if (connection.Disconnected)
                 Debug.LogWarning("Send called after Disconnected");
 
-            var res = SendSocket(connection.ConnId, data, channelId);
+            var res = SendSocket(connection.ConnId, span, channelId);
 
             if (res == EResult.k_EResultNoConnection || res == EResult.k_EResultInvalidParam)
             {
