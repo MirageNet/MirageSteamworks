@@ -38,7 +38,7 @@ add `com.miragenet.steamworkssocket` to your unity `manifest.json` file, make su
 ```json
 {
   "dependencies": {
-    "com.miragenet.mirage": "147.2.1",
+    "com.miragenet.mirage": "156.2.0",
     "com.rlabrecque.steamworks.net": "20.2.0",
     "com.cysharp.unitask": "2.2.5",
     "com.miragenet.steamworkssocket": "1.0.0",
