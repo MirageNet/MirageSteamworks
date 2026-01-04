@@ -1,3 +1,13 @@
+# [2.0.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.2.1...v2.0.0) (2026-01-04)
+
+
+* feat!: performance improvements from Mirage v156 ([11eb7ec](https://github.com/MirageNet/MirageSteamworks/commit/11eb7ecc217e77d8740e44c3a0243bc12519c77a))
+
+
+### BREAKING CHANGES
+
+* increasing minimum mirage version to v156.2.0
+
 ## [1.2.1](https://github.com/MirageNet/MirageSteamworks/compare/v1.2.0...v1.2.1) (2025-12-18)
 
 
