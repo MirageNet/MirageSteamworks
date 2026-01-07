@@ -7,30 +7,6 @@ using UnityEngine;
 
 namespace Mirage.SteamworksSocket
 {
-    public class Buffer : IDisposable
-    {
-        public readonly byte[] Array;
-        public int Size;
-        private readonly Pool<Buffer> _pool;
-
-        public Buffer(int bufferSize, Pool<Buffer> pool)
-        {
-            Array = new byte[bufferSize];
-            _pool = pool;
-        }
-
-        public static Buffer CreateNew(int bufferSize, Pool<Buffer> pool)
-        {
-            return new Buffer(bufferSize, pool);
-        }
-
-        public void Release()
-        {
-            _pool?.Put(this);
-        }
-        void IDisposable.Dispose() => Release();
-    }
-
     public delegate void DataReceivedHandler(SteamConnection connection, ReadOnlySpan<byte> data);
 
     public abstract class Common
@@ -51,7 +27,6 @@ namespace Mirage.SteamworksSocket
         /// if the <see cref="SteamGameServerNetworkingSockets"/> should be used instead of <see cref="SteamNetworkingSockets"/>
         /// </summary>
         protected readonly bool GameServer;
-        protected readonly Pool<Buffer> pool;
         protected readonly int maxBufferSize;
         protected readonly bool noNagle;
         protected readonly IntPtr[] receivePtrs = new IntPtr[MAX_MESSAGES];
@@ -65,7 +40,6 @@ namespace Mirage.SteamworksSocket
             GameServer = gameServer;
             this.maxBufferSize = maxBufferSize;
             this.noNagle = noNagle;
-            pool = new Pool<Buffer>(Buffer.CreateNew, this.maxBufferSize, 100, 1000, null);
         }
 
         protected void CallOnConnected(SteamConnection connection)
@@ -165,23 +139,6 @@ namespace Mirage.SteamworksSocket
                 }
                 return res;
             }
-        }
-
-        protected Buffer CopyToBuffer(SteamNetworkingMessage_t msg)
-        {
-            Buffer buffer;
-            if (msg.m_cbSize > maxBufferSize)
-            {
-                Debug.LogWarning($"Steam message was greater tha buffer pool, Size={msg.m_cbSize}, Max={maxBufferSize}");
-                buffer = new Buffer(msg.m_cbSize, null);
-            }
-            else
-            {
-                buffer = pool.Take();
-            }
-            Marshal.Copy(msg.m_pData, buffer.Array, 0, msg.m_cbSize);
-            buffer.Size = msg.m_cbSize;
-            return buffer;
         }
 
         public virtual void Send(SteamConnection connection, ReadOnlySpan<byte> data, Channel channelId)
