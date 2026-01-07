@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/MirageNet/MirageSteamworks/compare/v2.0.0...v2.0.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* reworking client connect to make sure events are called within ReceiveData ([c20bbe0](https://github.com/MirageNet/MirageSteamworks/commit/c20bbe0eca5efcf200ced79edc0e6993f2b36625))
+
 # [2.0.0](https://github.com/MirageNet/MirageSteamworks/compare/v1.2.1...v2.0.0) (2026-01-04)
 
 
