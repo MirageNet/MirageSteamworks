@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/MirageNet/MirageSteamworks/compare/v2.0.1...v2.0.2) (2026-01-07)
+
+
+### Bug Fixes
+
+* adding queues for steam callback and dequeueing inside tick ([289e008](https://github.com/MirageNet/MirageSteamworks/commit/289e008c4ee09e7d98ba633d7283f72710e911f3))
+
 ## [2.0.1](https://github.com/MirageNet/MirageSteamworks/compare/v2.0.0...v2.0.1) (2026-01-07)
 
 
