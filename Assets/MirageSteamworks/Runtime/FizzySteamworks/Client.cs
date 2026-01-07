@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Steamworks;
 using UnityEngine;
@@ -7,14 +8,6 @@ namespace Mirage.SteamworksSocket
 {
     public class Client : Common
     {
-        private enum ConnectResult
-        {
-            None,
-            Success,
-            Timeout,
-            Cancelled,
-            Failed,
-        }
         private enum State
         {
             New,
@@ -26,14 +19,13 @@ namespace Mirage.SteamworksSocket
         private readonly float timeoutSeconds;
 
         private State state;
-        private ConnectResult connectResult;
         private SteamConnection connection;
         private double connectingTimeout;
         public int DisconnectReason;
         public string DisconnectDebugString;
-        private bool disconnectEventCalled;
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
+        private readonly Queue<SteamNetConnectionStatusChangedCallback_t> _connectionStatusChanges = new Queue<SteamNetConnectionStatusChangedCallback_t>();
 
         public Client(float timeoutSeconds, bool gameServer, int maxBufferSize, bool noNagle) : base(gameServer, maxBufferSize, noNagle)
         {
@@ -67,7 +59,6 @@ namespace Mirage.SteamworksSocket
             {
                 c_onConnectionChange = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
                 var steamIdentity = new SteamNetworkingIdentity();
-                var steamId = connection.SteamID;
                 steamIdentity.SetSteamID(connection.SteamID);
 
                 var options = new SteamNetworkingConfigValue_t[] { };
@@ -86,74 +77,56 @@ namespace Mirage.SteamworksSocket
             return connection;
         }
 
-        private void EndConnecting(ConnectResult result)
+        private void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
         {
-            Debug.Assert(state == State.Connecting);
-            Debug.Assert(result != ConnectResult.None);
+            // queue event and process it in ReceiveData
+            _connectionStatusChanges.Enqueue(param);
+        }
 
-            switch (result)
+        private void ProcessConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
+        {
+            var state = param.m_info.m_eState;
+            switch (state)
             {
-                case ConnectResult.Success:
-                    state = State.Connected;
-                    CallOnConnected(connection);
+                case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected:
+                    OnSteamConnected();
                     break;
 
-                case ConnectResult.Timeout:
-                    Debug.LogError($"Connection attempt timed out.");
-
-                    InternalDisconnect(connection, k_ESteamNetConnectionEnd_App_Timeout, "Connecting Timeout");
-                    state = State.Disconnected;
-                    TryCallOnDisconnected();
+                case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer:
+                case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                    OnSteamDisconnected(param);
                     break;
 
-                case ConnectResult.Failed:
-                    Debug.LogWarning($"Connection attempt failed");
-
-                    state = State.Disconnected;
-                    TryCallOnDisconnected();
-                    break;
-
-                case ConnectResult.Cancelled:
-                    Debug.LogWarning($"Connection attempt was cancelled or rejected.");
-
-                    state = State.Disconnected;
-                    TryCallOnDisconnected();
+                default:
+                    Debug.Log($"Connection state changed: {state} - EndDebug:{param.m_info.m_szEndDebug}");
                     break;
             }
         }
 
-        private void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t param)
+        private void OnSteamConnected()
         {
-            //var clientSteamID = param.m_info.m_identityRemote.GetSteamID64();
-            if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected)
+            // need to invoke callbacks during Tick not when steam invokes callback
+            if (state == State.Connecting)
             {
-                // need to invoke callbacks during Tick not when steam invokes callback
-                if (state == State.Connecting)
-                {
-                    Debug.Log("Connection established.");
-                    connectResult = ConnectResult.Success;
-                }
-                else
-                {
-                    Debug.LogWarning($"Steam changed to Connected, but state is {state}");
-                }
-            }
-            else if (param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer
-                || param.m_info.m_eState == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
-            {
-                DisconnectReason = param.m_info.m_eEndReason;
-                DisconnectDebugString = param.m_info.m_szEndDebug;
-
-                Debug.LogWarning($"Connection was closed by peer, {DisconnectReason}: {DisconnectDebugString}");
-                if (state == State.Connecting && connectResult == ConnectResult.None)
-                    connectResult = ConnectResult.Failed;
-
-                InternalDisconnect(connection, null, "Closed or problem");
+                Debug.Log("Connection established.");
+                state = State.Connected;
+                CallOnConnected(connection);
             }
             else
             {
-                Debug.Log($"Connection state changed: {param.m_info.m_eState} - EndDebug:{param.m_info.m_szEndDebug}");
+                Debug.LogWarning($"Steam changed to Connected, but state is {state}");
             }
+        }
+
+        private void OnSteamDisconnected(SteamNetConnectionStatusChangedCallback_t param)
+        {
+            DisconnectReason = param.m_info.m_eEndReason;
+            DisconnectDebugString = param.m_info.m_szEndDebug;
+
+            Debug.LogWarning($"Connection was closed by peer, Reason: {DisconnectReason}, Debug: {DisconnectDebugString}");
+
+            var reason = param.m_info.m_eEndReason;
+            InternalDisconnect(connection, reason, "Connection closed by peer or problem detected.");
         }
 
         protected void Dispose()
@@ -167,9 +140,6 @@ namespace Mirage.SteamworksSocket
 
         public void Disconnect(int? reason = null, string debugStr = null)
         {
-            if (state == State.Connecting)
-                connectResult = ConnectResult.Cancelled;
-
             if (state == State.Connected || state == State.Connecting)
             {
                 debugStr ??= (state == State.Connected ? "Disconnect called" : "Disconnect called while Connecting");
@@ -180,6 +150,9 @@ namespace Mirage.SteamworksSocket
         protected override void InternalDisconnect(SteamConnection conn, int? reasonNullable, string debugString)
         {
             var reason = reasonNullable ?? (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Generic;
+            if (state == State.Disconnected)
+                return;
+
             Debug.Assert(connection == conn);
             state = State.Disconnected;
 
@@ -190,25 +163,20 @@ namespace Mirage.SteamworksSocket
             Dispose();
         }
 
-        public override unsafe void ReceiveData()
+        public override unsafe void Tick()
         {
-            // if we fail to connect, it will set the state to Disconnected after setting connectResult
-            if (state == State.Connecting || state == State.Disconnected)
+            while (_connectionStatusChanges.Count > 0)
             {
-                // check if result was set first,
-                // then check timeout
-                if (connectResult != ConnectResult.None)
-                {
-                    EndConnecting(connectResult);
-                }
-                else if (connectingTimeout > Time.timeAsDouble)
-                {
-                    connectResult = ConnectResult.Timeout;
-                    EndConnecting(connectResult);
-                }
+                ProcessConnectionStatusChanged(_connectionStatusChanges.Dequeue());
             }
 
-            // note: not else, we can start receiving after EndConnecting is called
+            if (state == State.Connecting && Time.timeAsDouble > connectingTimeout)
+            {
+                Debug.LogError($"Connection attempt timed out.");
+                InternalDisconnect(connection, k_ESteamNetConnectionEnd_App_Timeout, "Connecting Timeout");
+            }
+
+            // note: not else, we can start receiving after state changes to connected in this frame
             if (state == State.Connected)
             {
                 var messageCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(connection.ConnId, receivePtrs, receivePtrs.Length);
@@ -226,7 +194,8 @@ namespace Mirage.SteamworksSocket
                     }
                 }
             }
-            else if (state == State.Disconnected)
+
+            if (state == State.Disconnected)
             {
                 TryCallOnDisconnected();
             }
@@ -234,10 +203,10 @@ namespace Mirage.SteamworksSocket
 
         private void TryCallOnDisconnected()
         {
-            if (!disconnectEventCalled)
+            if (!connection.DisconnectedEventCalled)
             {
                 CallOnDisconnected(connection);
-                disconnectEventCalled = true;
+                connection.DisconnectedEventCalled = true;
             }
         }
 
@@ -257,7 +226,10 @@ namespace Mirage.SteamworksSocket
 
         public override void FlushData()
         {
-            SteamNetworkingSockets.FlushMessagesOnConnection(connection.ConnId);
+            if (connection != null && !connection.Disconnected)
+            {
+                SteamNetworkingSockets.FlushMessagesOnConnection(connection.ConnId);
+            }
         }
 
         public override void Shutdown() => Disconnect();

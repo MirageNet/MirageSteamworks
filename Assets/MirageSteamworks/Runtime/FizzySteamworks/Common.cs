@@ -169,7 +169,7 @@ namespace Mirage.SteamworksSocket
             }
         }
 
-        public abstract void ReceiveData();
+        public abstract void Tick();
         public abstract void FlushData();
         public abstract void Shutdown();
 

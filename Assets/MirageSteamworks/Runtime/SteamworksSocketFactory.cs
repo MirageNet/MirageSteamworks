@@ -193,8 +193,8 @@ namespace Mirage.SteamworksSocket
         }
         public void Tick()
         {
-            if (verbose.LogEnabled()) verbose.Log($"Calling ReceiveData");
-            common.ReceiveData();
+            if (verbose.LogEnabled()) verbose.Log($"Calling {common.GetType().Name}.Tick");
+            common.Tick();
         }
 
         public bool Poll()
