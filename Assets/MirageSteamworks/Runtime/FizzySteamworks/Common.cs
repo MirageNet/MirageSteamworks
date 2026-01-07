@@ -39,6 +39,7 @@ namespace Mirage.SteamworksSocket
         public const int k_ESteamNetConnectionEnd_App_Generic = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min;
         public const int k_ESteamNetConnectionEnd_App_RejectedCallback = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min + 1;
         public const int k_ESteamNetConnectionEnd_App_RejectedPeer = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min + 2;
+        public const int k_ESteamNetConnectionEnd_App_Timeout = (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min + 3;
 
         public enum Channel
         {

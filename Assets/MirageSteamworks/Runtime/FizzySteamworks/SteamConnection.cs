@@ -7,6 +7,7 @@ namespace Mirage.SteamworksSocket
     public class SteamConnection : IConnectionHandle
     {
         public readonly Common Owner;
+        /// <summary>Remote SteamID</summary>
         public readonly CSteamID SteamID;
         public HSteamNetConnection ConnId;
         public bool Disconnected;
