@@ -290,11 +290,25 @@ namespace Mirage.SteamworksSocket
         {
             if (GameServer)
             {
+                foreach (var conn in connections.Values)
+                {
+                    SteamGameServerNetworkingSockets.SetConnectionPollGroup(conn.ConnId, HSteamNetPollGroup.Invalid);
+                    SteamGameServerNetworkingSockets.CloseConnection(conn.ConnId, k_ESteamNetConnectionEnd_App_Generic, "Server Shutdown", false);
+                }
+                connections.Clear();
+
                 SteamGameServerNetworkingSockets.CloseListenSocket(listenSocket);
                 SteamGameServerNetworkingSockets.DestroyPollGroup(pollGroup);
             }
             else
             {
+                foreach (var conn in connections.Values)
+                {
+                    SteamNetworkingSockets.SetConnectionPollGroup(conn.ConnId, HSteamNetPollGroup.Invalid);
+                    SteamNetworkingSockets.CloseConnection(conn.ConnId, k_ESteamNetConnectionEnd_App_Generic, "Server Shutdown", false);
+                }
+                connections.Clear();
+
                 SteamNetworkingSockets.CloseListenSocket(listenSocket);
                 SteamNetworkingSockets.DestroyPollGroup(pollGroup);
             }
