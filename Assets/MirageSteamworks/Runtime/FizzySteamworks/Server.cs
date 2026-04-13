@@ -19,6 +19,8 @@ namespace Mirage.SteamworksSocket
         private Callback<SteamNetConnectionStatusChangedCallback_t> c_onConnectionChange = null;
         private readonly Queue<SteamNetConnectionStatusChangedCallback_t> _connectionStatusChanges = new Queue<SteamNetConnectionStatusChangedCallback_t>();
         private readonly Queue<SteamConnection> _pendingDisconnections = new Queue<SteamConnection>();
+        /// <summary>used to avoid logging "missing connection" after disconnect</summary>
+        private readonly List<HSteamNetConnection> recentlyDisconnected = new List<HSteamNetConnection>();
 
         public Server(bool gameServer, int maxBufferSize, bool noNagle, AcceptConnectionCallback acceptCallback) : base(gameServer, maxBufferSize, noNagle)
         {
@@ -182,6 +184,7 @@ namespace Mirage.SteamworksSocket
                 return;
 
             connections.Remove(connId);
+            recentlyDisconnected.Add(connId);
             conn.Disconnected = true;
 
             if (GameServer)
@@ -243,7 +246,11 @@ namespace Mirage.SteamworksSocket
                     }
                     else
                     {
-                        Debug.LogWarning($"Failed to find connection for {msg.m_conn}");
+                        // check list so we can avoid logging if we have disconnected from the CallOnData call
+                        if (!recentlyDisconnected.Contains(msg.m_conn))
+                        {
+                            Debug.LogWarning($"Failed to find connection for {msg.m_conn}");
+                        }
                     }
                 }
                 finally
@@ -252,6 +259,8 @@ namespace Mirage.SteamworksSocket
                     SteamNetworkingMessage_t.Release(receivePtrs[i]);
                 }
             }
+
+            recentlyDisconnected.Clear();
         }
 
         private void TryCallOnDisconnected(SteamConnection conn)
