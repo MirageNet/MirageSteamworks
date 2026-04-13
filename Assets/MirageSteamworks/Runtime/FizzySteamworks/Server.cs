@@ -116,7 +116,13 @@ namespace Mirage.SteamworksSocket
                 if (res == EResult.k_EResultOK)
                     Debug.Log($"Accepting connection {clientSteamID}");
                 else
+                {
                     Debug.Log($"Connection {clientSteamID} could not be accepted: {res}");
+                    if (GameServer)
+                        _ = SteamGameServerNetworkingSockets.CloseConnection(param.m_hConn, k_ESteamNetConnectionEnd_App_Generic, "AcceptConnection failed", false);
+                    else
+                        _ = SteamNetworkingSockets.CloseConnection(param.m_hConn, k_ESteamNetConnectionEnd_App_Generic, "AcceptConnection failed", false);
+                }
             }
             else
             {
