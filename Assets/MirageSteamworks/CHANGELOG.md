@@ -1,3 +1,12 @@
+## [2.0.3](https://github.com/MirageNet/MirageSteamworks/compare/v2.0.2...v2.0.3) (2026-04-13)
+
+
+### Bug Fixes
+
+* avoid log if disconnected inside CallOnData ([2554c26](https://github.com/MirageNet/MirageSteamworks/commit/2554c2680d873431073b8730df3fbfa343bf9c3f))
+* clean poll group and close connections when shutting down server ([b993268](https://github.com/MirageNet/MirageSteamworks/commit/b993268b356f996ebba0476790a45c9ceff21948))
+* close connection if AcceptConnection call fails ([98ce748](https://github.com/MirageNet/MirageSteamworks/commit/98ce748cdf4fc4063304fab49a0ba63783d8587c))
+
 ## [2.0.2](https://github.com/MirageNet/MirageSteamworks/compare/v2.0.1...v2.0.2) (2026-01-07)
 
 
